@@ -386,7 +386,7 @@
           <span class="resize-hint">La lavagna è un pannello fisso: puoi scorrere senza deformare il testo.</span>
         </div>
       </div>
-      <div class="board-wrapper">
+      <div class="board-wrapper" id="boardWrapper">
         <canvas id="board" width="2000" height="1200"></canvas>
       </div>
     </section>
@@ -441,6 +441,7 @@
     const penTool = document.getElementById("penTool");
     const eraserTool = document.getElementById("eraserTool");
     const colorPalette = document.getElementById("colorPalette");
+    const boardWrapper = document.getElementById("boardWrapper");
 
     let currentTool = "pen"; // 'pen' | 'eraser'
     let currentColor = colorPicker.value;
@@ -696,7 +697,7 @@
       fileInput.value = "";
     });
 
-    // INVIA ALLA LAVAGNA (livello 1)
+    // INVIA ALLA LAVAGNA (livello 1 con ridimensionamento sulla finestra visibile)
     sendToBoardButton.addEventListener("click", () => {
       // Usiamo l'immagine attualmente visibile in imageView
       if (!imageView.src || imageView.style.display === "none") {
@@ -706,21 +707,42 @@
 
       const img = new Image();
       img.onload = () => {
-        // Calcoliamo una dimensione che stia bene dentro il canvas
-        const maxW = canvas.width * 0.8;
-        const maxH = canvas.height * 0.8;
-
+        // Dimensioni reali dell'immagine
         let drawWidth = img.width;
         let drawHeight = img.height;
 
-        const scale = Math.min(maxW / drawWidth, maxH / drawHeight, 1);
+        // Dimensioni visibili del pannello della lavagna
+        const visibleW = boardWrapper.clientWidth * 0.9;
+        const visibleH = boardWrapper.clientHeight * 0.9;
+
+        // Calcoliamo la scala in base:
+        // - alla finestra visibile della lavagna
+        // - alle dimensioni del canvas
+        const scale = Math.min(
+          visibleW / drawWidth,
+          visibleH / drawHeight,
+          canvas.width / drawWidth,
+          canvas.height / drawHeight,
+          1
+        );
+
         drawWidth *= scale;
         drawHeight *= scale;
 
-        const x = (canvas.width - drawWidth) / 2;
-        const y = (canvas.height - drawHeight) / 2;
+        // Posizioniamo l'immagine in modo che stia tutta
+        // dentro la zona visibile (in alto a sinistra, centrata nella finestra)
+        // Coordinate nel canvas: zona "visibile" ~ (0..visibleW, 0..visibleH)
+        const offsetX = (visibleW - drawWidth) / 2;
+        const offsetY = (visibleH - drawHeight) / 2;
 
-        // Disegniamo l'immagine nella lavagna (sopra tutto ciò che c'è già)
+        const x = Math.max(0, offsetX);
+        const y = Math.max(0, offsetY);
+
+        // Prima riportiamo lo scroll in alto a sinistra
+        boardWrapper.scrollLeft = 0;
+        boardWrapper.scrollTop = 0;
+
+        // Disegniamo l'immagine nella lavagna (non cancelliamo ciò che c'è)
         ctx.globalCompositeOperation = "source-over";
         ctx.drawImage(img, x, y, drawWidth, drawHeight);
       };
