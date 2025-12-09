@@ -213,7 +213,7 @@
       flex: 1;
       padding: 0.5rem;
       min-height: 0;
-      overflow: auto; /* il "pannello" scorrevole */
+      overflow: auto; /* pannello scorrevole */
     }
 
     /* Lavagna: pannello fisso, non si deforma mai */
@@ -286,7 +286,11 @@
       flex: 1;
       min-height: 0;
       border-top: 1px solid #ddd;
+      position: relative;
       overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     #webview {
@@ -295,6 +299,14 @@
       border: none;
       background: #ffffff;
       transform-origin: 0 0;
+    }
+
+    /* Immagine caricata dal PC */
+    #imageView {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      display: none; /* per default nascosta */
     }
 
     /* Modalità "compatta" del browser quando A+B */
@@ -395,6 +407,7 @@
           <button type="submit">Apri</button>
         </form>
         <button id="uploadButton" type="button">Carica file (PDF/immagine)</button>
+        <button id="clearRight" type="button">Pulisci</button>
         <div class="hint">
           In A+B il sito viene ridotto per far entrare più contenuto.
         </div>
@@ -408,6 +421,7 @@
       </div>
       <div class="iframe-wrapper">
         <iframe id="webview" src="about:blank" title="Browser interno"></iframe>
+        <img id="imageView" alt="Immagine caricata" />
       </div>
     </section>
   </div>
@@ -596,11 +610,25 @@
     const urlForm = document.getElementById("urlForm");
     const urlInput = document.getElementById("urlInput");
     const webview = document.getElementById("webview");
+    const imageView = document.getElementById("imageView");
 
     const uploadButton = document.getElementById("uploadButton");
+    const clearRightButton = document.getElementById("clearRight");
     const fileInput = document.getElementById("fileInput");
 
     let currentObjectUrl = null;
+
+    // Mostra il browser (iframe) e nasconde l'immagine
+    function showIframe() {
+      webview.style.display = "block";
+      imageView.style.display = "none";
+    }
+
+    // Mostra l'immagine e nasconde l'iframe
+    function showImage() {
+      webview.style.display = "none";
+      imageView.style.display = "block";
+    }
 
     // Apertura URL esterno
     urlForm.addEventListener("submit", (e) => {
@@ -618,6 +646,7 @@
         url = "https://" + url;
       }
 
+      showIframe();
       webview.src = url;
     });
 
@@ -640,11 +669,33 @@
       const objectUrl = URL.createObjectURL(file);
       currentObjectUrl = objectUrl;
 
-      // Mostriamo il file (PDF o immagine) dentro l'iframe
-      webview.src = objectUrl;
+      // Controlliamo se è immagine o PDF
+      if (file.type.startsWith("image/")) {
+        imageView.src = objectUrl;
+        showImage();
+      } else {
+        showIframe();
+        webview.src = objectUrl;
+      }
 
-      // opzionale: svuotiamo il campo URL per non confondere
       urlInput.value = "";
+    });
+
+    // PULISCI PARTE DESTRA
+    clearRightButton.addEventListener("click", () => {
+      // revoca eventuale blob
+      if (currentObjectUrl) {
+        URL.revokeObjectURL(currentObjectUrl);
+        currentObjectUrl = null;
+      }
+      // reset iframe e immagine
+      webview.src = "about:blank";
+      imageView.src = "";
+      // mostra iframe vuoto, nasconde immagine
+      showIframe();
+      // svuota input
+      urlInput.value = "";
+      fileInput.value = "";
     });
 
     // --- DIVISORE TRASCINABILE ---
@@ -670,7 +721,7 @@
 
       leftPanel.style.flex = `0 0 ${newWidth}px`;
       rightPanel.style.flex = "1 1 auto";
-      // la lavagna non viene ridimensionata: è il "pannello" a scorrere
+      // la lavagna non viene ridimensionata: è il pannello a scorrere
     }
 
     divider.addEventListener("mousedown", (e) => {
