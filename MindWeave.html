@@ -107,7 +107,7 @@
             cursor: move;
             user-select: none;
             -webkit-user-select: none;
-            touch-action: none; /* questo dice all’iPad: qui si trascina, non si scrolla */
+            touch-action: none; /* qui si trascina, non si scrolla */
             font-size: 16px;
             color: #000;
         }
@@ -269,7 +269,7 @@
         node.style.top = (50 + Math.random() * 200) + "px";
     }
 
-    // --- DRAG & DROP NODI (MOUSE + TOUCH) ---
+    // --- DRAG & DROP NODI (MOUSE + TOUCH), disattivato se connectorMode === true ---
 
     function makeDraggable(node) {
         let offsetX = 0;
@@ -277,13 +277,14 @@
         let isDown = false;
 
         function startDrag(clientX, clientY) {
+            if (connectorMode) return;  // in modalità connettore NON si trascina
             isDown = true;
             offsetX = clientX - node.offsetLeft;
             offsetY = clientY - node.offsetTop;
         }
 
         function moveDrag(clientX, clientY) {
-            if (!isDown) return;
+            if (!isDown || connectorMode) return;
             const newLeft = clientX - offsetX;
             const newTop = clientY - offsetY;
             node.style.left = newLeft + "px";
@@ -297,6 +298,7 @@
 
         // mouse
         node.addEventListener("mousedown", e => {
+            if (connectorMode) return;
             startDrag(e.clientX, e.clientY);
         });
 
@@ -310,15 +312,19 @@
 
         // touch (iPad)
         node.addEventListener("touchstart", e => {
+            if (connectorMode) {
+                // in modalità connettore: niente drag, lasciamo passare l'evento per il tap
+                return;
+            }
             if (e.touches.length > 0) {
                 const t = e.touches[0];
                 startDrag(t.clientX, t.clientY);
-                e.preventDefault(); // blocca scroll/zoom pagina
+                e.preventDefault(); // blocca scroll/zoom pagina solo in drag
             }
         }, { passive: false });
 
         window.addEventListener("touchmove", e => {
-            if (!isDown) return;
+            if (!isDown || connectorMode) return;
             if (e.touches.length > 0) {
                 const t = e.touches[0];
                 moveDrag(t.clientX, t.clientY);
@@ -340,12 +346,21 @@
         });
     }
 
-    // --- MODALITÀ CONNETTORE ---
+    // --- MODALITÀ CONNETTORE (TOGGLE) ---
 
     connectorBtn.addEventListener("click", () => {
-        connectorMode = true;
-        connectorBtn.classList.add("active");
-        clearSelection();
+        connectorMode = !connectorMode;
+
+        if (connectorMode) {
+            connectorBtn.classList.add("active");
+            clearSelection();
+        } else {
+            connectorBtn.classList.remove("active");
+            if (selectedNode) {
+                selectedNode.classList.remove("selected");
+                selectedNode = null;
+            }
+        }
     });
 
     function handleNodeClick(node) {
