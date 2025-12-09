@@ -1,1 +1,195 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title>MindWeave</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+
+        #toolbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background: #222;
+            color: white;
+            padding: 10px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            z-index: 10;
+        }
+
+        #canvas {
+            position: absolute;
+            top: 50px;
+            left: 0;
+            width: 100vw;
+            height: calc(100vh - 50px);
+        }
+
+        .node {
+            position: absolute;
+            padding: 8px 14px;
+            background: white;
+            border: 2px solid #444;
+            border-radius: 6px;
+            cursor: move;
+            user-select: none;
+            font-size: 16px;
+        }
+
+        .node img {
+            max-width: 150px;
+            max-height: 150px;
+            pointer-events: none;
+        }
+
+        /* Modal testo */
+        #textInput {
+            width: 180px;
+            padding: 5px;
+        }
+
+    </style>
+</head>
+<body>
+
+<div id="toolbar">
+    <input type="text" id="textInput" placeholder="Scrivi un nodo…">
+    <button onclick="addTextNode()">Aggiungi testo</button>
+
+    <input type="file" id="imgInput" accept="image/*">
+    <button onclick="addImageNode()">Aggiungi immagine</button>
+
+    <button onclick="startConnector()">Connettore</button>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const nodes = [];
+    const connections = [];
+    let selectedForConnection = null;
+
+    function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight - 50;
+        drawConnections();
+    }
+
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
+    function addTextNode() {
+        const text = document.getElementById("textInput").value.trim();
+        if (!text) return;
+
+        const node = document.createElement("div");
+        node.className = "node";
+        node.innerText = text;
+
+        positionNode(node);
+        makeDraggable(node);
+
+        document.body.appendChild(node);
+        nodes.push(node);
+    }
+
+    function addImageNode() {
+        const file = document.getElementById("imgInput").files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function (e) {
+            const node = document.createElement("div");
+            node.className = "node";
+            node.innerHTML = `<img src="${e.target.result}">`;
+
+            positionNode(node);
+            makeDraggable(node);
+
+            document.body.appendChild(node);
+            nodes.push(node);
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function positionNode(node) {
+        node.style.left = (100 + Math.random() * 300) + "px";
+        node.style.top = (100 + Math.random() * 300) + "px";
+    }
+
+    function makeDraggable(node) {
+        let offsetX, offsetY, isDown = false;
+
+        node.addEventListener("mousedown", e => {
+            isDown = true;
+            offsetX = e.clientX - node.offsetLeft;
+            offsetY = e.clientY - node.offsetTop;
+        });
+
+        window.addEventListener("mousemove", e => {
+            if (!isDown) return;
+            node.style.left = (e.clientX - offsetX) + "px";
+            node.style.top = (e.clientY - offsetY) + "px";
+            drawConnections();
+        });
+
+        window.addEventListener("mouseup", () => isDown = false);
+
+        node.addEventListener("click", () => handleNodeClick(node));
+    }
+
+    // --- CONNETTORI ---
+    let connectorMode = false;
+
+    function startConnector() {
+        connectorMode = true;
+        selectedForConnection = null;
+    }
+
+    function handleNodeClick(node) {
+        if (!connectorMode) return;
+
+        if (!selectedForConnection) {
+            selectedForConnection = node;
+            node.style.borderColor = "red";
+        } else {
+            connections.push([selectedForConnection, node]);
+            selectedForConnection.style.borderColor = "#444";
+            selectedForConnection = null;
+            connectorMode = false;
+            drawConnections();
+        }
+    }
+
+    function drawConnections() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        connections.forEach(([a, b]) => {
+            const ax = a.offsetLeft + a.offsetWidth / 2;
+            const ay = a.offsetTop + a.offsetHeight / 2 - 50;
+
+            const bx = b.offsetLeft + b.offsetWidth / 2;
+            const by = b.offsetTop + b.offsetHeight / 2 - 50;
+
+            ctx.beginPath();
+            ctx.moveTo(ax, ay);
+            ctx.lineTo(bx, by);
+            ctx.strokeStyle = "#333";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        });
+    }
+</script>
+
+</body>
+</html>
 
