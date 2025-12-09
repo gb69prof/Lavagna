@@ -275,16 +275,31 @@
         let offsetX = 0;
         let offsetY = 0;
         let isDown = false;
+        let startX = 0;
+        let startY = 0;
+        let hasMoved = false;
+
+        const TAP_THRESHOLD = 5; // px: sotto questo è "tap", sopra è drag
 
         function startDrag(clientX, clientY) {
             if (connectorMode) return;  // in modalità connettore NON si trascina
             isDown = true;
+            hasMoved = false;
+            startX = clientX;
+            startY = clientY;
             offsetX = clientX - node.offsetLeft;
             offsetY = clientY - node.offsetTop;
         }
 
         function moveDrag(clientX, clientY) {
             if (!isDown || connectorMode) return;
+
+            const dx = clientX - startX;
+            const dy = clientY - startY;
+            if (Math.abs(dx) > TAP_THRESHOLD || Math.abs(dy) > TAP_THRESHOLD) {
+                hasMoved = true;
+            }
+
             const newLeft = clientX - offsetX;
             const newTop = clientY - offsetY;
             node.style.left = newLeft + "px";
@@ -292,8 +307,14 @@
             drawConnections();
         }
 
-        function endDrag() {
+        function endDrag(clientX, clientY) {
+            if (!isDown) return;
             isDown = false;
+
+            // Se non si è mosso quasi per nulla → tap → selezione
+            if (!hasMoved) {
+                handleNodeClick(node);
+            }
         }
 
         // mouse
@@ -306,14 +327,16 @@
             moveDrag(e.clientX, e.clientY);
         });
 
-        window.addEventListener("mouseup", () => {
-            endDrag();
+        window.addEventListener("mouseup", e => {
+            endDrag(e.clientX, e.clientY);
         });
 
         // touch (iPad)
         node.addEventListener("touchstart", e => {
             if (connectorMode) {
-                // in modalità connettore non attivo drag, il tap serve per il collegamento
+                // in modalità connettore il tap verrà gestito in touchend come selezione
+                hasMoved = false;
+                isDown = false;
                 return;
             }
             if (e.touches.length > 0) {
@@ -332,16 +355,35 @@
             }
         }, { passive: false });
 
+        node.addEventListener("touchend", e => {
+            // se siamo in modalità connettore, il tap serve per collegare
+            if (connectorMode) {
+                handleNodeClick(node);
+                return;
+            }
+            // se eravamo in drag
+            if (isDown) {
+                const t = (e.changedTouches && e.changedTouches[0]) || null;
+                const clientX = t ? t.clientX : startX;
+                const clientY = t ? t.clientY : startY;
+                endDrag(clientX, clientY);
+            } else {
+                // touch breve senza drag esplicito → tap
+                handleNodeClick(node);
+            }
+        }, { passive: false });
+
         window.addEventListener("touchend", () => {
-            endDrag();
+            isDown = false;
         });
 
         window.addEventListener("touchcancel", () => {
-            endDrag();
+            isDown = false;
         });
 
+        // click desktop (lasciato per completezza)
         node.addEventListener("click", e => {
-            e.stopPropagation(); // evita che il click cada sul workspace/canvas
+            e.stopPropagation();
             handleNodeClick(node);
         });
     }
