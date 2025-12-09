@@ -214,8 +214,15 @@
       background: #fff;
       border-radius: 8px;
       border: 1px solid #ccc;
-      touch-action: none; /* per scrivere con il dito su tablet */
+      touch-action: none;
       display: block;
+    }
+
+    .resize-hint {
+      font-size: 0.7rem;
+      opacity: 0.7;
+      margin-left: 0.3rem;
+      white-space: nowrap;
     }
 
     /* BROWSER (DESTRA) */
@@ -270,6 +277,7 @@
       flex: 1;
       min-height: 0;
       border-top: 1px solid #ddd;
+      overflow: hidden;
     }
 
     #webview {
@@ -277,6 +285,24 @@
       height: 100%;
       border: none;
       background: #ffffff;
+      transform-origin: 0 0;
+    }
+
+    /* Modalità "compatta" del browser quando A+B */
+    body.compact-iframe .iframe-wrapper {
+      overflow: auto;
+    }
+
+    body.compact-iframe #webview {
+      transform: scale(0.85);
+      width: 118%;
+      height: 118%;
+    }
+
+    body:not(.compact-iframe) #webview {
+      transform: none;
+      width: 100%;
+      height: 100%;
     }
 
     @media (max-width: 800px) {
@@ -334,6 +360,7 @@
         <div class="toolbar-group">
           <button id="clearBoard">Pulisci</button>
           <button id="exportPng">📸 Esporta PNG</button>
+          <span class="resize-hint">Suggerimento: se cambi la larghezza, la lavagna si azzera per non deformare il testo.</span>
         </div>
       </div>
       <div class="board-wrapper">
@@ -357,7 +384,7 @@
           <button type="submit">Apri</button>
         </form>
         <div class="hint">
-          Alcuni siti potrebbero bloccare l’anteprima in iframe.
+          Alcuni siti possono limitare l’iframe; con A+B il sito viene ridotto per entrare meglio.
         </div>
       </div>
       <div class="iframe-wrapper">
@@ -398,7 +425,7 @@
     penTool.addEventListener("click", () => setTool("pen"));
     eraserTool.addEventListener("click", () => setTool("eraser"));
 
-    // Gestione palette colori
+    // Palette colori
     function selectSwatch(swatch) {
       const all = colorPalette.querySelectorAll(".color-swatch");
       all.forEach(el => el.classList.remove("selected"));
@@ -418,43 +445,32 @@
 
     colorPicker.addEventListener("input", () => {
       currentColor = colorPicker.value;
-      // deseleziona eventuali swatch
       selectSwatch(null);
     });
 
-    function resizeCanvas() {
+    function resizeCanvas(clearOnly = true) {
       const wrapper = canvas.parentElement;
       const rect = wrapper.getBoundingClientRect();
 
       if (rect.width <= 0 || rect.height <= 0) {
-        // pannello nascosto (vista solo browser), non ridimensiono
         return;
       }
-
-      const temp = document.createElement("canvas");
-      temp.width = canvas.width;
-      temp.height = canvas.height;
-      const tempCtx = temp.getContext("2d");
-      tempCtx.drawImage(canvas, 0, 0);
 
       canvas.width = rect.width;
       canvas.height = rect.height;
 
-      ctx.drawImage(
-        temp,
-        0,
-        0,
-        temp.width,
-        temp.height,
-        0,
-        0,
-        canvas.width,
-        canvas.height
-      );
+      if (clearOnly) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
     }
 
-    window.addEventListener("load", resizeCanvas);
-    window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("load", () => {
+      resizeCanvas(true);
+    });
+
+    window.addEventListener("resize", () => {
+      resizeCanvas(true);
+    });
 
     let drawing = false;
     let lastX = 0;
@@ -621,8 +637,7 @@
 
       leftPanel.style.flex = `0 0 ${newWidth}px`;
       rightPanel.style.flex = "1 1 auto";
-
-      resizeCanvas();
+      // niente resizeCanvas qui: lo facciamo solo alla fine per evitare deformazioni
     }
 
     divider.addEventListener("mousedown", (e) => {
@@ -646,6 +661,8 @@
       isDragging = false;
       divider.classList.remove("dragging");
       document.body.style.userSelect = "";
+      // a trascinamento finito, ricalcolo la lavagna e la azzero
+      resizeCanvas(true);
     });
 
     // Touch per il divisore
@@ -684,6 +701,7 @@
         isDragging = false;
         divider.classList.remove("dragging");
         document.body.style.userSelect = "";
+        resizeCanvas(true);
       },
       { passive: false }
     );
@@ -705,19 +723,22 @@
         leftPanel.style.display = "flex";
         rightPanel.style.display = "flex";
         divider.style.display = "block";
+        document.body.classList.add("compact-iframe");
       } else if (viewMode === "lavagna") {
         leftPanel.style.display = "flex";
         rightPanel.style.display = "none";
         divider.style.display = "none";
         leftPanel.style.flex = "1 1 auto";
+        document.body.classList.remove("compact-iframe");
       } else if (viewMode === "browser") {
         leftPanel.style.display = "none";
         rightPanel.style.display = "flex";
         divider.style.display = "none";
         rightPanel.style.flex = "1 1 auto";
+        document.body.classList.remove("compact-iframe");
       }
       updateViewButtons();
-      resizeCanvas();
+      resizeCanvas(true);
     }
 
     viewAButton.addEventListener("click", () => {
