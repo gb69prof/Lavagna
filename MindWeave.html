@@ -133,7 +133,7 @@
     <button id="addImgBtn">Aggiungi immagine</button>
 
     <button id="connectorBtn">Connettore</button>
-    <button id="eraserBtn">Gomma</button>
+    <button id="deleteBtn">Cancella</button>
 
     <label>Bordo
         <input type="color" id="borderColorInput" value="#444444">
@@ -164,7 +164,7 @@
     const addTextBtn = document.getElementById("addTextBtn");
     const addImgBtn = document.getElementById("addImgBtn");
     const connectorBtn = document.getElementById("connectorBtn");
-    const eraserBtn = document.getElementById("eraserBtn");
+    const deleteBtn = document.getElementById("deleteBtn");
 
     const borderColorInput = document.getElementById("borderColorInput");
     const textColorInput = document.getElementById("textColorInput");
@@ -178,7 +178,7 @@
     let connections = []; // ogni connessione: { from, to, color }
 
     let connectorMode = false;
-    let selectedNode = null;             // per nodi
+    let selectedNode = null;             // per nodi (testo o immagine)
     let selectionType = "none";          // "none" | "node" | "connection"
     let selectedConnectionIndex = -1;
 
@@ -313,7 +313,7 @@
         // touch (iPad)
         node.addEventListener("touchstart", e => {
             if (connectorMode) {
-                // in modalità connettore: niente drag, lasciamo passare l'evento per il tap
+                // in modalità connettore non attivo drag, il tap serve per il collegamento
                 return;
             }
             if (e.touches.length > 0) {
@@ -386,7 +386,7 @@
             return;
         }
 
-        // Modalità normale: selezione per colori / gomma
+        // Modalità normale: selezione per colori / cancella
         clearSelection();
         selectedNode = node;
         node.classList.add("selected");
@@ -423,9 +423,9 @@
         currentArrowColor = arrowColorInput.value;
     });
 
-    // --- GOMMA: cancella nodo o freccia selezionati ---
+    // --- CANCELLA: elimina nodo o freccia selezionati ---
 
-    eraserBtn.addEventListener("click", () => {
+    deleteBtn.addEventListener("click", () => {
         if (selectionType === "node" && selectedNode) {
             // rimuovi tutte le connessioni legate al nodo
             connections = connections.filter(conn =>
