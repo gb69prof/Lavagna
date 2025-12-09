@@ -24,43 +24,50 @@
       color: #fff;
       font-size: 0.95rem;
       display: flex;
+      flex-direction: column;
       align-items: center;
-      justify-content: space-between;
-      gap: 0.75rem;
-      flex-wrap: wrap;
+      gap: 0.35rem;
     }
 
-    header .title {
+    .title {
       font-weight: 600;
+      text-align: center;
     }
 
-    header .subtitle {
+    .subtitle {
       opacity: 0.8;
       font-size: 0.85rem;
+      text-align: center;
+    }
+
+    .view-controls-wrapper {
+      width: 100%;
+      display: flex;
+      justify-content: center;
     }
 
     .view-controls {
       display: flex;
       align-items: center;
-      gap: 0.25rem;
+      gap: 0.5rem;
       font-size: 0.8rem;
       flex-wrap: wrap;
-      justify-content: flex-end;
+      justify-content: center;
     }
 
     .view-controls span {
-      opacity: 0.8;
+      opacity: 0.85;
     }
 
     .view-controls button {
-      padding: 0.2rem 0.6rem;
-      border-radius: 4px;
+      padding: 0.2rem 0.8rem;
+      border-radius: 999px;
       border: 1px solid #888;
       background: #444;
       color: #fff;
       cursor: pointer;
       font-size: 0.8rem;
-      min-width: 2rem;
+      min-width: 2.3rem;
       text-align: center;
     }
 
@@ -206,16 +213,19 @@
       flex: 1;
       padding: 0.5rem;
       min-height: 0;
+      overflow: auto; /* il "pannello" scorrevole */
     }
 
+    /* Lavagna: pannello fisso, non si deforma mai */
     #board {
-      width: 100%;
-      height: 100%;
       background: #fff;
       border-radius: 8px;
       border: 1px solid #ccc;
       touch-action: none;
       display: block;
+      /* dimensioni fisse del "pannello" */
+      width: 2000px;
+      height: 1200px;
     }
 
     .resize-hint {
@@ -314,15 +324,15 @@
 </head>
 <body>
   <header>
-    <div>
-      <div class="title">Lavagna + Browser</div>
-      <div class="subtitle">A = lavagna · B = browser · A+B = entrambi</div>
-    </div>
-    <div class="view-controls">
-      <span>Vista:</span>
-      <button id="viewA">A</button>
-      <button id="viewB">B</button>
-      <button id="viewAB">A+B</button>
+    <div class="title">Lavagna + Browser</div>
+    <div class="subtitle">A = lavagna · B = browser · A+B = entrambi (lavagna scorrevole, non si deforma)</div>
+    <div class="view-controls-wrapper">
+      <div class="view-controls">
+        <span>Vista:</span>
+        <button id="viewA">A</button>
+        <button id="viewB">B</button>
+        <button id="viewAB">A+B</button>
+      </div>
     </div>
   </header>
 
@@ -360,11 +370,11 @@
         <div class="toolbar-group">
           <button id="clearBoard">Pulisci</button>
           <button id="exportPng">📸 Esporta PNG</button>
-          <span class="resize-hint">Suggerimento: se cambi la larghezza, la lavagna si azzera per non deformare il testo.</span>
+          <span class="resize-hint">La lavagna è un pannello fisso: puoi scorrere senza deformare il testo.</span>
         </div>
       </div>
       <div class="board-wrapper">
-        <canvas id="board"></canvas>
+        <canvas id="board" width="2000" height="1200"></canvas>
       </div>
     </section>
 
@@ -384,7 +394,7 @@
           <button type="submit">Apri</button>
         </form>
         <div class="hint">
-          Alcuni siti possono limitare l’iframe; con A+B il sito viene ridotto per entrare meglio.
+          In A+B il sito viene ridotto per far entrare più contenuto.
         </div>
       </div>
       <div class="iframe-wrapper">
@@ -446,30 +456,6 @@
     colorPicker.addEventListener("input", () => {
       currentColor = colorPicker.value;
       selectSwatch(null);
-    });
-
-    function resizeCanvas(clearOnly = true) {
-      const wrapper = canvas.parentElement;
-      const rect = wrapper.getBoundingClientRect();
-
-      if (rect.width <= 0 || rect.height <= 0) {
-        return;
-      }
-
-      canvas.width = rect.width;
-      canvas.height = rect.height;
-
-      if (clearOnly) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      }
-    }
-
-    window.addEventListener("load", () => {
-      resizeCanvas(true);
-    });
-
-    window.addEventListener("resize", () => {
-      resizeCanvas(true);
     });
 
     let drawing = false;
@@ -637,7 +623,7 @@
 
       leftPanel.style.flex = `0 0 ${newWidth}px`;
       rightPanel.style.flex = "1 1 auto";
-      // niente resizeCanvas qui: lo facciamo solo alla fine per evitare deformazioni
+      // la lavagna non viene ridimensionata: il pannello resta fisso, la finestra cambia
     }
 
     divider.addEventListener("mousedown", (e) => {
@@ -661,8 +647,6 @@
       isDragging = false;
       divider.classList.remove("dragging");
       document.body.style.userSelect = "";
-      // a trascinamento finito, ricalcolo la lavagna e la azzero
-      resizeCanvas(true);
     });
 
     // Touch per il divisore
@@ -701,7 +685,6 @@
         isDragging = false;
         divider.classList.remove("dragging");
         document.body.style.userSelect = "";
-        resizeCanvas(true);
       },
       { passive: false }
     );
@@ -738,7 +721,6 @@
         document.body.classList.remove("compact-iframe");
       }
       updateViewButtons();
-      resizeCanvas(true);
     }
 
     viewAButton.addEventListener("click", () => {
