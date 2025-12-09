@@ -223,7 +223,6 @@
       border: 1px solid #ccc;
       touch-action: none;
       display: block;
-      /* dimensioni fisse del "pannello" */
       width: 2000px;
       height: 1200px;
     }
@@ -325,7 +324,9 @@
 <body>
   <header>
     <div class="title">Lavagna + Browser</div>
-    <div class="subtitle">A = lavagna · B = browser · A+B = entrambi (lavagna scorrevole, non si deforma)</div>
+    <div class="subtitle">
+      A = lavagna · B = browser · A+B = entrambi (lavagna scorrevole, non si deforma)
+    </div>
     <div class="view-controls-wrapper">
       <div class="view-controls">
         <span>Vista:</span>
@@ -393,9 +394,17 @@
           />
           <button type="submit">Apri</button>
         </form>
+        <button id="uploadButton" type="button">Carica file (PDF/immagine)</button>
         <div class="hint">
           In A+B il sito viene ridotto per far entrare più contenuto.
         </div>
+        <!-- input file nascosto -->
+        <input
+          type="file"
+          id="fileInput"
+          accept="application/pdf,image/*"
+          style="display:none"
+        />
       </div>
       <div class="iframe-wrapper">
         <iframe id="webview" src="about:blank" title="Browser interno"></iframe>
@@ -582,22 +591,60 @@
       document.body.removeChild(link);
     });
 
-    // --- MINI-BROWSER A DESTRA ---
+    // --- MINI-BROWSER A DESTRA: URL + FILE LOCALE ---
 
     const urlForm = document.getElementById("urlForm");
     const urlInput = document.getElementById("urlInput");
     const webview = document.getElementById("webview");
 
+    const uploadButton = document.getElementById("uploadButton");
+    const fileInput = document.getElementById("fileInput");
+
+    let currentObjectUrl = null;
+
+    // Apertura URL esterno
     urlForm.addEventListener("submit", (e) => {
       e.preventDefault();
       let url = urlInput.value.trim();
       if (!url) return;
+
+      // se prima avevamo un blob locale, lo rilasciamo
+      if (currentObjectUrl) {
+        URL.revokeObjectURL(currentObjectUrl);
+        currentObjectUrl = null;
+      }
 
       if (!/^https?:\/\//i.test(url)) {
         url = "https://" + url;
       }
 
       webview.src = url;
+    });
+
+    // Click su "Carica file"
+    uploadButton.addEventListener("click", () => {
+      fileInput.click();
+    });
+
+    // Quando l'utente sceglie un file dal computer
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      // se avevamo già un URL blob, lo liberiamo
+      if (currentObjectUrl) {
+        URL.revokeObjectURL(currentObjectUrl);
+        currentObjectUrl = null;
+      }
+
+      const objectUrl = URL.createObjectURL(file);
+      currentObjectUrl = objectUrl;
+
+      // Mostriamo il file (PDF o immagine) dentro l'iframe
+      webview.src = objectUrl;
+
+      // opzionale: svuotiamo il campo URL per non confondere
+      urlInput.value = "";
     });
 
     // --- DIVISORE TRASCINABILE ---
@@ -623,7 +670,7 @@
 
       leftPanel.style.flex = `0 0 ${newWidth}px`;
       rightPanel.style.flex = "1 1 auto";
-      // la lavagna non viene ridimensionata: il pannello resta fisso, la finestra cambia
+      // la lavagna non viene ridimensionata: è il "pannello" a scorrere
     }
 
     divider.addEventListener("mousedown", (e) => {
