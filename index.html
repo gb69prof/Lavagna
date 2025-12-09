@@ -44,6 +44,8 @@
       align-items: center;
       gap: 0.25rem;
       font-size: 0.8rem;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
 
     .view-controls span {
@@ -134,6 +136,13 @@
       flex-wrap: wrap;
     }
 
+    .toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+    }
+
     .toolbar label {
       display: flex;
       align-items: center;
@@ -170,6 +179,27 @@
 
     .toolbar button:hover {
       background: #eee;
+    }
+
+    .color-palette {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      flex-wrap: wrap;
+    }
+
+    .color-swatch {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 1px solid #666;
+      cursor: pointer;
+      flex: 0 0 auto;
+    }
+
+    .color-swatch.selected {
+      outline: 2px solid #000;
+      outline-offset: 1px;
     }
 
     .board-wrapper {
@@ -249,8 +279,6 @@
       background: #ffffff;
     }
 
-    /* RESPONSIVE: su schermi stretti la modalità divisa ha poco senso,
-       ma lasciamo comunque la struttura; A/B restano utili. */
     @media (max-width: 800px) {
       .main {
         flex-direction: row;
@@ -262,13 +290,13 @@
   <header>
     <div>
       <div class="title">Lavagna + Browser</div>
-      <div class="subtitle">Sinistra: scrivi · Destra: navighi</div>
+      <div class="subtitle">A = lavagna · B = browser · A+B = entrambi</div>
     </div>
     <div class="view-controls">
       <span>Vista:</span>
-      <button id="viewA" class="">A</button>
-      <button id="viewB" class="">B</button>
-      <span>(A = solo lavagna, B = solo browser, di nuovo per tornare diviso)</span>
+      <button id="viewA">A</button>
+      <button id="viewB">B</button>
+      <button id="viewAB">A+B</button>
     </div>
   </header>
 
@@ -276,18 +304,37 @@
     <!-- PANNELLO SINISTRO: LAVAGNA -->
     <section class="panel left" id="leftPanel">
       <div class="toolbar">
-        <button id="penTool" class="active">Penna</button>
-        <button id="eraserTool">Gomma</button>
+        <div class="toolbar-group">
+          <button id="penTool" class="active">Penna</button>
+          <button id="eraserTool">Gomma</button>
+        </div>
 
-        <label>Colore
+        <div class="toolbar-group">
+          <span>Colori</span>
+          <div class="color-palette" id="colorPalette">
+            <div class="color-swatch" data-color="#000000" style="background:#000000;"></div>
+            <div class="color-swatch" data-color="#d32f2f" style="background:#d32f2f;"></div>
+            <div class="color-swatch" data-color="#1976d2" style="background:#1976d2;"></div>
+            <div class="color-swatch" data-color="#388e3c" style="background:#388e3c;"></div>
+            <div class="color-swatch" data-color="#fbc02d" style="background:#fbc02d;"></div>
+            <div class="color-swatch" data-color="#7b1fa2" style="background:#7b1fa2;"></div>
+            <div class="color-swatch" data-color="#ff9800" style="background:#ff9800;"></div>
+            <div class="color-swatch" data-color="#795548" style="background:#795548;"></div>
+            <div class="color-swatch" data-color="#607d8b" style="background:#607d8b;"></div>
+          </div>
           <input type="color" id="colorPicker" value="#222222" />
-        </label>
+        </div>
 
-        <label>Spessore
-          <input type="range" id="sizePicker" min="1" max="40" value="4" />
-        </label>
+        <div class="toolbar-group">
+          <label>Spessore
+            <input type="range" id="sizePicker" min="1" max="40" value="4" />
+          </label>
+        </div>
 
-        <button id="clearBoard">Pulisci</button>
+        <div class="toolbar-group">
+          <button id="clearBoard">Pulisci</button>
+          <button id="exportPng">📸 Esporta PNG</button>
+        </div>
       </div>
       <div class="board-wrapper">
         <canvas id="board"></canvas>
@@ -328,11 +375,14 @@
     const colorPicker = document.getElementById("colorPicker");
     const sizePicker = document.getElementById("sizePicker");
     const clearButton = document.getElementById("clearBoard");
+    const exportButton = document.getElementById("exportPng");
 
     const penTool = document.getElementById("penTool");
     const eraserTool = document.getElementById("eraserTool");
+    const colorPalette = document.getElementById("colorPalette");
 
     let currentTool = "pen"; // 'pen' | 'eraser'
+    let currentColor = colorPicker.value;
 
     function setTool(tool) {
       currentTool = tool;
@@ -348,11 +398,39 @@
     penTool.addEventListener("click", () => setTool("pen"));
     eraserTool.addEventListener("click", () => setTool("eraser"));
 
+    // Gestione palette colori
+    function selectSwatch(swatch) {
+      const all = colorPalette.querySelectorAll(".color-swatch");
+      all.forEach(el => el.classList.remove("selected"));
+      if (swatch) {
+        swatch.classList.add("selected");
+      }
+    }
+
+    colorPalette.addEventListener("click", (e) => {
+      const swatch = e.target.closest(".color-swatch");
+      if (!swatch) return;
+      const color = swatch.getAttribute("data-color");
+      currentColor = color;
+      colorPicker.value = color;
+      selectSwatch(swatch);
+    });
+
+    colorPicker.addEventListener("input", () => {
+      currentColor = colorPicker.value;
+      // deseleziona eventuali swatch
+      selectSwatch(null);
+    });
+
     function resizeCanvas() {
       const wrapper = canvas.parentElement;
       const rect = wrapper.getBoundingClientRect();
 
-      // Salva il contenuto esistente
+      if (rect.width <= 0 || rect.height <= 0) {
+        // pannello nascosto (vista solo browser), non ridimensiono
+        return;
+      }
+
       const temp = document.createElement("canvas");
       temp.width = canvas.width;
       temp.height = canvas.height;
@@ -362,7 +440,6 @@
       canvas.width = rect.width;
       canvas.height = rect.height;
 
-      // Ridisegna il contenuto precedente adattandolo
       ctx.drawImage(
         temp,
         0,
@@ -395,9 +472,8 @@
 
       if (currentTool === "pen") {
         ctx.globalCompositeOperation = "source-over";
-        ctx.strokeStyle = colorPicker.value;
+        ctx.strokeStyle = currentColor;
       } else {
-        // Gomma: cancella davvero
         ctx.globalCompositeOperation = "destination-out";
         ctx.strokeStyle = "rgba(0,0,0,1)";
       }
@@ -450,7 +526,7 @@
     canvas.addEventListener("mouseup", stopDrawing);
     canvas.addEventListener("mouseleave", stopDrawing);
 
-    // Touch events (per iPad / tablet)
+    // Touch events
     canvas.addEventListener(
       "touchstart",
       (e) => {
@@ -493,6 +569,17 @@
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     });
 
+    // Esporta PNG
+    exportButton.addEventListener("click", () => {
+      const dataUrl = canvas.toDataURL("image/png");
+      const link = document.createElement("a");
+      link.href = dataUrl;
+      link.download = "lavagna.png";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+
     // --- MINI-BROWSER A DESTRA ---
 
     const urlForm = document.getElementById("urlForm");
@@ -504,7 +591,6 @@
       let url = urlInput.value.trim();
       if (!url) return;
 
-      // se manca lo schema, aggiunge https://
       if (!/^https?:\/\//i.test(url)) {
         url = "https://" + url;
       }
@@ -512,7 +598,7 @@
       webview.src = url;
     });
 
-    // --- DIVISORE TRASCINABILE (RIDIMENSIONA LAVAGNA) ---
+    // --- DIVISORE TRASCINABILE ---
 
     const leftPanel = document.getElementById("leftPanel");
     const rightPanel = document.getElementById("rightPanel");
@@ -526,8 +612,8 @@
 
     function setLeftWidthFromClientX(clientX) {
       const rect = main.getBoundingClientRect();
-      const minLeft = 150; // larghezza minima lavagna
-      const maxLeft = rect.width - 150; // larghezza minima browser
+      const minLeft = 150;
+      const maxLeft = rect.width - 150;
 
       let newWidth = clientX - rect.left;
       if (newWidth < minLeft) newWidth = minLeft;
@@ -562,7 +648,7 @@
       document.body.style.userSelect = "";
     });
 
-    // Touch per il divisore (iPad)
+    // Touch per il divisore
     divider.addEventListener(
       "touchstart",
       (e) => {
@@ -602,14 +688,16 @@
       { passive: false }
     );
 
-    // --- GESTIONE VISTA A / B ---
+    // --- GESTIONE VISTA A / B / A+B ---
 
     const viewAButton = document.getElementById("viewA");
     const viewBButton = document.getElementById("viewB");
+    const viewABButton = document.getElementById("viewAB");
 
     function updateViewButtons() {
       viewAButton.classList.toggle("active", viewMode === "lavagna");
       viewBButton.classList.toggle("active", viewMode === "browser");
+      viewABButton.classList.toggle("active", viewMode === "split");
     }
 
     function applyViewMode() {
@@ -617,7 +705,6 @@
         leftPanel.style.display = "flex";
         rightPanel.style.display = "flex";
         divider.style.display = "block";
-        // mantieni le larghezze come sono (lavagna ridimensionabile)
       } else if (viewMode === "lavagna") {
         leftPanel.style.display = "flex";
         rightPanel.style.display = "none";
@@ -634,20 +721,22 @@
     }
 
     viewAButton.addEventListener("click", () => {
-      // se non siamo in lavagna-only, passiamo a lavagna-only
-      // se siamo già in lavagna-only, torniamo a split
-      viewMode = viewMode === "lavagna" ? "split" : "lavagna";
+      viewMode = "lavagna";
       applyViewMode();
     });
 
     viewBButton.addEventListener("click", () => {
-      // se non siamo in browser-only, passiamo a browser-only
-      // se siamo già in browser-only, torniamo a split
-      viewMode = viewMode === "browser" ? "split" : "browser";
+      viewMode = "browser";
       applyViewMode();
     });
 
-    // assicura modalità iniziale
+    viewABButton.addEventListener("click", () => {
+      viewMode = "split";
+      applyViewMode();
+    });
+
+    // modalità iniziale = A+B (split)
+    viewMode = "split";
     applyViewMode();
   </script>
 </body>
