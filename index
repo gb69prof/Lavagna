@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lavagna + Browser</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f5f5;
+    }
+
+    header {
+      padding: 0.5rem 1rem;
+      background: #222;
+      color: #fff;
+      font-size: 0.95rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    header .title {
+      font-weight: 600;
+    }
+
+    header .subtitle {
+      opacity: 0.8;
+      font-size: 0.85rem;
+    }
+
+    .view-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.8rem;
+    }
+
+    .view-controls span {
+      opacity: 0.8;
+    }
+
+    .view-controls button {
+      padding: 0.2rem 0.6rem;
+      border-radius: 4px;
+      border: 1px solid #888;
+      background: #444;
+      color: #fff;
+      cursor: pointer;
+      font-size: 0.8rem;
+      min-width: 2rem;
+      text-align: center;
+    }
+
+    .view-controls button.active {
+      background: #ffd54f;
+      color: #000;
+      border-color: #ffb300;
+    }
+
+    .main {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .panel {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .panel.left {
+      background: #fafafa;
+      border-right: 1px solid #ccc;
+      flex: 0 0 50%;
+    }
+
+    .panel.right {
+      background: #ffffff;
+      flex: 1 1 auto;
+    }
+
+    /* DIVISORE TRASCINABILE */
+
+    .divider {
+      width: 6px;
+      background: #ddd;
+      cursor: col-resize;
+      flex: 0 0 6px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .divider::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 2px;
+      height: 32px;
+      background: #bbb;
+      border-radius: 2px;
+    }
+
+    .divider.dragging {
+      background: #bbb;
+    }
+
+    /* LAVAGNA (SINISTRA) */
+
+    .toolbar {
+      padding: 0.5rem 0.8rem;
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      border-bottom: 1px solid #ddd;
+      background: #f0f0f0;
+      font-size: 0.85rem;
+      flex-wrap: wrap;
+    }
+
+    .toolbar label {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      white-space: nowrap;
+    }
+
+    .toolbar input[type="color"] {
+      width: 32px;
+      height: 24px;
+      border: none;
+      padding: 0;
+      background: none;
+    }
+
+    .toolbar input[type="range"] {
+      width: 100px;
+    }
+
+    .toolbar button {
+      padding: 0.3rem 0.75rem;
+      border-radius: 4px;
+      border: 1px solid #999;
+      background: #fff;
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+
+    .toolbar button.active {
+      background: #333;
+      color: #fff;
+      border-color: #333;
+    }
+
+    .toolbar button:hover {
+      background: #eee;
+    }
+
+    .board-wrapper {
+      flex: 1;
+      padding: 0.5rem;
+      min-height: 0;
+    }
+
+    #board {
+      width: 100%;
+      height: 100%;
+      background: #fff;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      touch-action: none; /* per scrivere con il dito su tablet */
+      display: block;
+    }
+
+    /* BROWSER (DESTRA) */
+
+    .browser-bar {
+      padding: 0.5rem 0.8rem;
+      border-bottom: 1px solid #ddd;
+      background: #f0f0f8;
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      font-size: 0.85rem;
+      flex-wrap: wrap;
+    }
+
+    .browser-bar form {
+      display: flex;
+      gap: 0.5rem;
+      flex: 1;
+      align-items: center;
+    }
+
+    .browser-bar input[type="url"] {
+      flex: 1;
+      padding: 0.35rem 0.5rem;
+      border-radius: 4px;
+      border: 1px solid #aaa;
+      font-size: 0.9rem;
+    }
+
+    .browser-bar button {
+      padding: 0.35rem 0.75rem;
+      border-radius: 4px;
+      border: 1px solid #555;
+      background: #333;
+      color: #fff;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+
+    .browser-bar button:hover {
+      background: #111;
+    }
+
+    .hint {
+      font-size: 0.75rem;
+      opacity: 0.8;
+      white-space: nowrap;
+    }
+
+    .iframe-wrapper {
+      flex: 1;
+      min-height: 0;
+      border-top: 1px solid #ddd;
+    }
+
+    #webview {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: #ffffff;
+    }
+
+    /* RESPONSIVE: su schermi stretti la modalità divisa ha poco senso,
+       ma lasciamo comunque la struttura; A/B restano utili. */
+    @media (max-width: 800px) {
+      .main {
+        flex-direction: row;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="title">Lavagna + Browser</div>
+      <div class="subtitle">Sinistra: scrivi · Destra: navighi</div>
+    </div>
+    <div class="view-controls">
+      <span>Vista:</span>
+      <button id="viewA" class="">A</button>
+      <button id="viewB" class="">B</button>
+      <span>(A = solo lavagna, B = solo browser, di nuovo per tornare diviso)</span>
+    </div>
+  </header>
+
+  <div class="main">
+    <!-- PANNELLO SINISTRO: LAVAGNA -->
+    <section class="panel left" id="leftPanel">
+      <div class="toolbar">
+        <button id="penTool" class="active">Penna</button>
+        <button id="eraserTool">Gomma</button>
+
+        <label>Colore
+          <input type="color" id="colorPicker" value="#222222" />
+        </label>
+
+        <label>Spessore
+          <input type="range" id="sizePicker" min="1" max="40" value="4" />
+        </label>
+
+        <button id="clearBoard">Pulisci</button>
+      </div>
+      <div class="board-wrapper">
+        <canvas id="board"></canvas>
+      </div>
+    </section>
+
+    <!-- DIVISORE TRASCINABILE -->
+    <div class="divider" id="divider"></div>
+
+    <!-- PANNELLO DESTRO: BROWSER INTERNO -->
+    <section class="panel right" id="rightPanel">
+      <div class="browser-bar">
+        <form id="urlForm">
+          <label for="urlInput">URL</label>
+          <input
+            type="url"
+            id="urlInput"
+            placeholder="es. https://it.wikipedia.org/wiki/Giovanni_Pascoli"
+          />
+          <button type="submit">Apri</button>
+        </form>
+        <div class="hint">
+          Alcuni siti potrebbero bloccare l’anteprima in iframe.
+        </div>
+      </div>
+      <div class="iframe-wrapper">
+        <iframe id="webview" src="about:blank" title="Browser interno"></iframe>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // --- LAVAGNA (CANVAS) ---
+
+    const canvas = document.getElementById("board");
+    const ctx = canvas.getContext("2d");
+
+    const colorPicker = document.getElementById("colorPicker");
+    const sizePicker = document.getElementById("sizePicker");
+    const clearButton = document.getElementById("clearBoard");
+
+    const penTool = document.getElementById("penTool");
+    const eraserTool = document.getElementById("eraserTool");
+
+    let currentTool = "pen"; // 'pen' | 'eraser'
+
+    function setTool(tool) {
+      currentTool = tool;
+      if (tool === "pen") {
+        penTool.classList.add("active");
+        eraserTool.classList.remove("active");
+      } else {
+        penTool.classList.remove("active");
+        eraserTool.classList.add("active");
+      }
+    }
+
+    penTool.addEventListener("click", () => setTool("pen"));
+    eraserTool.addEventListener("click", () => setTool("eraser"));
+
+    function resizeCanvas() {
+      const wrapper = canvas.parentElement;
+      const rect = wrapper.getBoundingClientRect();
+
+      // Salva il contenuto esistente
+      const temp = document.createElement("canvas");
+      temp.width = canvas.width;
+      temp.height = canvas.height;
+      const tempCtx = temp.getContext("2d");
+      tempCtx.drawImage(canvas, 0, 0);
+
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+
+      // Ridisegna il contenuto precedente adattandolo
+      ctx.drawImage(
+        temp,
+        0,
+        0,
+        temp.width,
+        temp.height,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+    }
+
+    window.addEventListener("load", resizeCanvas);
+    window.addEventListener("resize", resizeCanvas);
+
+    let drawing = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    function startDrawing(x, y) {
+      drawing = true;
+      [lastX, lastY] = [x, y];
+    }
+
+    function drawLine(x, y) {
+      if (!drawing) return;
+
+      const lineWidth = sizePicker.value;
+
+      if (currentTool === "pen") {
+        ctx.globalCompositeOperation = "source-over";
+        ctx.strokeStyle = colorPicker.value;
+      } else {
+        // Gomma: cancella davvero
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.strokeStyle = "rgba(0,0,0,1)";
+      }
+
+      ctx.lineWidth = lineWidth;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      [lastX, lastY] = [x, y];
+    }
+
+    function stopDrawing() {
+      drawing = false;
+      ctx.globalCompositeOperation = "source-over";
+    }
+
+    function getCanvasCoords(event) {
+      const rect = canvas.getBoundingClientRect();
+      let clientX, clientY;
+
+      if (event.touches && event.touches.length > 0) {
+        clientX = event.touches[0].clientX;
+        clientY = event.touches[0].clientY;
+      } else {
+        clientX = event.clientX;
+        clientY = event.clientY;
+      }
+
+      return {
+        x: clientX - rect.left,
+        y: clientY - rect.top,
+      };
+    }
+
+    // Mouse events
+    canvas.addEventListener("mousedown", (e) => {
+      const { x, y } = getCanvasCoords(e);
+      startDrawing(x, y);
+    });
+
+    canvas.addEventListener("mousemove", (e) => {
+      const { x, y } = getCanvasCoords(e);
+      drawLine(x, y);
+    });
+
+    canvas.addEventListener("mouseup", stopDrawing);
+    canvas.addEventListener("mouseleave", stopDrawing);
+
+    // Touch events (per iPad / tablet)
+    canvas.addEventListener(
+      "touchstart",
+      (e) => {
+        e.preventDefault();
+        const { x, y } = getCanvasCoords(e);
+        startDrawing(x, y);
+      },
+      { passive: false }
+    );
+
+    canvas.addEventListener(
+      "touchmove",
+      (e) => {
+        e.preventDefault();
+        const { x, y } = getCanvasCoords(e);
+        drawLine(x, y);
+      },
+      { passive: false }
+    );
+
+    canvas.addEventListener(
+      "touchend",
+      (e) => {
+        e.preventDefault();
+        stopDrawing();
+      },
+      { passive: false }
+    );
+
+    canvas.addEventListener(
+      "touchcancel",
+      (e) => {
+        e.preventDefault();
+        stopDrawing();
+      },
+      { passive: false }
+    );
+
+    clearButton.addEventListener("click", () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    });
+
+    // --- MINI-BROWSER A DESTRA ---
+
+    const urlForm = document.getElementById("urlForm");
+    const urlInput = document.getElementById("urlInput");
+    const webview = document.getElementById("webview");
+
+    urlForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      let url = urlInput.value.trim();
+      if (!url) return;
+
+      // se manca lo schema, aggiunge https://
+      if (!/^https?:\/\//i.test(url)) {
+        url = "https://" + url;
+      }
+
+      webview.src = url;
+    });
+
+    // --- DIVISORE TRASCINABILE (RIDIMENSIONA LAVAGNA) ---
+
+    const leftPanel = document.getElementById("leftPanel");
+    const rightPanel = document.getElementById("rightPanel");
+    const divider = document.getElementById("divider");
+    const main = document.querySelector(".main");
+
+    let isDragging = false;
+    let startX = 0;
+    let startLeftWidth = 0;
+    let viewMode = "split"; // 'split' | 'lavagna' | 'browser'
+
+    function setLeftWidthFromClientX(clientX) {
+      const rect = main.getBoundingClientRect();
+      const minLeft = 150; // larghezza minima lavagna
+      const maxLeft = rect.width - 150; // larghezza minima browser
+
+      let newWidth = clientX - rect.left;
+      if (newWidth < minLeft) newWidth = minLeft;
+      if (newWidth > maxLeft) newWidth = maxLeft;
+
+      leftPanel.style.flex = `0 0 ${newWidth}px`;
+      rightPanel.style.flex = "1 1 auto";
+
+      resizeCanvas();
+    }
+
+    divider.addEventListener("mousedown", (e) => {
+      if (viewMode !== "split") return;
+      isDragging = true;
+      divider.classList.add("dragging");
+      startX = e.clientX;
+      startLeftWidth = leftPanel.getBoundingClientRect().width;
+      document.body.style.userSelect = "none";
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (!isDragging) return;
+      const delta = e.clientX - startX;
+      const newWidth = startLeftWidth + delta;
+      setLeftWidthFromClientX(main.getBoundingClientRect().left + newWidth);
+    });
+
+    window.addEventListener("mouseup", () => {
+      if (!isDragging) return;
+      isDragging = false;
+      divider.classList.remove("dragging");
+      document.body.style.userSelect = "";
+    });
+
+    // Touch per il divisore (iPad)
+    divider.addEventListener(
+      "touchstart",
+      (e) => {
+        if (viewMode !== "split") return;
+        e.preventDefault();
+        isDragging = true;
+        divider.classList.add("dragging");
+        const touch = e.touches[0];
+        startX = touch.clientX;
+        startLeftWidth = leftPanel.getBoundingClientRect().width;
+        document.body.style.userSelect = "none";
+      },
+      { passive: false }
+    );
+
+    window.addEventListener(
+      "touchmove",
+      (e) => {
+        if (!isDragging) return;
+        e.preventDefault();
+        const touch = e.touches[0];
+        const delta = touch.clientX - startX;
+        const newWidth = startLeftWidth + delta;
+        setLeftWidthFromClientX(main.getBoundingClientRect().left + newWidth);
+      },
+      { passive: false }
+    );
+
+    window.addEventListener(
+      "touchend",
+      () => {
+        if (!isDragging) return;
+        isDragging = false;
+        divider.classList.remove("dragging");
+        document.body.style.userSelect = "";
+      },
+      { passive: false }
+    );
+
+    // --- GESTIONE VISTA A / B ---
+
+    const viewAButton = document.getElementById("viewA");
+    const viewBButton = document.getElementById("viewB");
+
+    function updateViewButtons() {
+      viewAButton.classList.toggle("active", viewMode === "lavagna");
+      viewBButton.classList.toggle("active", viewMode === "browser");
+    }
+
+    function applyViewMode() {
+      if (viewMode === "split") {
+        leftPanel.style.display = "flex";
+        rightPanel.style.display = "flex";
+        divider.style.display = "block";
+        // mantieni le larghezze come sono (lavagna ridimensionabile)
+      } else if (viewMode === "lavagna") {
+        leftPanel.style.display = "flex";
+        rightPanel.style.display = "none";
+        divider.style.display = "none";
+        leftPanel.style.flex = "1 1 auto";
+      } else if (viewMode === "browser") {
+        leftPanel.style.display = "none";
+        rightPanel.style.display = "flex";
+        divider.style.display = "none";
+        rightPanel.style.flex = "1 1 auto";
+      }
+      updateViewButtons();
+      resizeCanvas();
+    }
+
+    viewAButton.addEventListener("click", () => {
+      // se non siamo in lavagna-only, passiamo a lavagna-only
+      // se siamo già in lavagna-only, torniamo a split
+      viewMode = viewMode === "lavagna" ? "split" : "lavagna";
+      applyViewMode();
+    });
+
+    viewBButton.addEventListener("click", () => {
+      // se non siamo in browser-only, passiamo a browser-only
+      // se siamo già in browser-only, torniamo a split
+      viewMode = viewMode === "browser" ? "split" : "browser";
+      applyViewMode();
+    });
+
+    // assicura modalità iniziale
+    applyViewMode();
+  </script>
+</body>
+</html>
