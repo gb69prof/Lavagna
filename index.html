@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Lavagna + Browser</title>
+
+  <!-- PDF.js per gestire i PDF caricati dal computer -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.13.216/pdf.min.js"></script>
+
   <style>
     * {
       box-sizing: border-box;
@@ -428,6 +432,12 @@
   </div>
 
   <script>
+    // Configurazione worker di PDF.js
+    if (window['pdfjsLib']) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.13.216/pdf.worker.min.js";
+    }
+
     // --- LAVAGNA (CANVAS) ---
 
     const canvas = document.getElementById("board");
@@ -620,6 +630,8 @@
     const fileInput = document.getElementById("fileInput");
 
     let currentObjectUrl = null;
+    let currentFileIsImage = false;
+    let currentFileIsPdf = false;
 
     // Mostra il browser (iframe) e nasconde l'immagine
     function showIframe() {
@@ -644,6 +656,8 @@
         URL.revokeObjectURL(currentObjectUrl);
         currentObjectUrl = null;
       }
+      currentFileIsImage = false;
+      currentFileIsPdf = false;
 
       if (!/^https?:\/\//i.test(url)) {
         url = "https://" + url;
@@ -672,11 +686,19 @@
       const objectUrl = URL.createObjectURL(file);
       currentObjectUrl = objectUrl;
 
-      // Controlliamo se è immagine o PDF
+      currentFileIsImage = false;
+      currentFileIsPdf = false;
+
       if (file.type.startsWith("image/")) {
+        currentFileIsImage = true;
         imageView.src = objectUrl;
         showImage();
+      } else if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+        currentFileIsPdf = true;
+        showIframe();
+        webview.src = objectUrl;
       } else {
+        // altri tipi: proviamo comunque nell'iframe
         showIframe();
         webview.src = objectUrl;
       }
@@ -695,58 +717,98 @@
       showIframe();
       urlInput.value = "";
       fileInput.value = "";
+      currentFileIsImage = false;
+      currentFileIsPdf = false;
     });
 
-    // INVIA ALLA LAVAGNA (livello 1 con ridimensionamento sulla finestra visibile)
-    sendToBoardButton.addEventListener("click", () => {
-      // Usiamo l'immagine attualmente visibile in imageView
-      if (!imageView.src || imageView.style.display === "none") {
-        // Nessuna immagine caricata o visibile
+    // INVIA ALLA LAVAGNA (immagine o PDF -> immagine)
+    sendToBoardButton.addEventListener("click", async () => {
+      // Caso 1: immagine caricata
+      if (currentFileIsImage && imageView.src && imageView.style.display !== "none") {
+        const img = new Image();
+        img.onload = () => {
+          let drawWidth = img.width;
+          let drawHeight = img.height;
+
+          const visibleW = boardWrapper.clientWidth * 0.9;
+          const visibleH = boardWrapper.clientHeight * 0.9;
+
+          const scale = Math.min(
+            visibleW / drawWidth,
+            visibleH / drawHeight,
+            canvas.width / drawWidth,
+            canvas.height / drawHeight,
+            1
+          );
+
+          drawWidth *= scale;
+          drawHeight *= scale;
+
+          const offsetX = (visibleW - drawWidth) / 2;
+          const offsetY = (visibleH - drawHeight) / 2;
+
+          const x = Math.max(0, offsetX);
+          const y = Math.max(0, offsetY);
+
+          boardWrapper.scrollLeft = 0;
+          boardWrapper.scrollTop = 0;
+
+          ctx.globalCompositeOperation = "source-over";
+          ctx.drawImage(img, x, y, drawWidth, drawHeight);
+        };
+        img.src = imageView.src;
         return;
       }
 
-      const img = new Image();
-      img.onload = () => {
-        // Dimensioni reali dell'immagine
-        let drawWidth = img.width;
-        let drawHeight = img.height;
+      // Caso 2: PDF caricato dal computer -> render prima pagina con PDF.js
+      if (currentFileIsPdf && currentObjectUrl && window['pdfjsLib']) {
+        try {
+          const loadingTask = pdfjsLib.getDocument(currentObjectUrl);
+          const pdf = await loadingTask.promise;
+          const page = await pdf.getPage(1);
 
-        // Dimensioni visibili del pannello della lavagna
-        const visibleW = boardWrapper.clientWidth * 0.9;
-        const visibleH = boardWrapper.clientHeight * 0.9;
+          const viewport = page.getViewport({ scale: 1 });
+          let drawWidth = viewport.width;
+          let drawHeight = viewport.height;
 
-        // Calcoliamo la scala in base:
-        // - alla finestra visibile della lavagna
-        // - alle dimensioni del canvas
-        const scale = Math.min(
-          visibleW / drawWidth,
-          visibleH / drawHeight,
-          canvas.width / drawWidth,
-          canvas.height / drawHeight,
-          1
-        );
+          const visibleW = boardWrapper.clientWidth * 0.9;
+          const visibleH = boardWrapper.clientHeight * 0.9;
 
-        drawWidth *= scale;
-        drawHeight *= scale;
+          const scale = Math.min(
+            visibleW / drawWidth,
+            visibleH / drawHeight,
+            canvas.width / drawWidth,
+            canvas.height / drawHeight,
+            1
+          );
 
-        // Posizioniamo l'immagine in modo che stia tutta
-        // dentro la zona visibile (in alto a sinistra, centrata nella finestra)
-        // Coordinate nel canvas: zona "visibile" ~ (0..visibleW, 0..visibleH)
-        const offsetX = (visibleW - drawWidth) / 2;
-        const offsetY = (visibleH - drawHeight) / 2;
+          const scaledViewport = page.getViewport({ scale });
 
-        const x = Math.max(0, offsetX);
-        const y = Math.max(0, offsetY);
+          const tempCanvas = document.createElement("canvas");
+          const tempCtx = tempCanvas.getContext("2d");
+          tempCanvas.width = scaledViewport.width;
+          tempCanvas.height = scaledViewport.height;
 
-        // Prima riportiamo lo scroll in alto a sinistra
-        boardWrapper.scrollLeft = 0;
-        boardWrapper.scrollTop = 0;
+          await page.render({
+            canvasContext: tempCtx,
+            viewport: scaledViewport
+          }).promise;
 
-        // Disegniamo l'immagine nella lavagna (non cancelliamo ciò che c'è)
-        ctx.globalCompositeOperation = "source-over";
-        ctx.drawImage(img, x, y, drawWidth, drawHeight);
-      };
-      img.src = imageView.src;
+          const offsetX = (visibleW - tempCanvas.width) / 2;
+          const offsetY = (visibleH - tempCanvas.height) / 2;
+
+          const x = Math.max(0, offsetX);
+          const y = Math.max(0, offsetY);
+
+          boardWrapper.scrollLeft = 0;
+          boardWrapper.scrollTop = 0;
+
+          ctx.globalCompositeOperation = "source-over";
+          ctx.drawImage(tempCanvas, x, y);
+        } catch (err) {
+          console.error("Errore nel rendering del PDF:", err);
+        }
+      }
     });
 
     // --- DIVISORE TRASCINABILE ---
