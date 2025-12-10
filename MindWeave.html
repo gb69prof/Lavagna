@@ -131,7 +131,7 @@
             border-color: red;
         }
 
-        /* Maniglie di ridimensionamento (visibili solo sul nodo selezionato) */
+        /* Maniglie di ridimensionamento (visibili SOLO se è attivo il tasto Ridimensiona) */
         .resize-handle {
             position: absolute;
             width: 10px;
@@ -144,7 +144,8 @@
             display: none;
         }
 
-        .node.selected .resize-handle {
+        /* Le maniglie appaiono solo se: nodo selezionato + modalità ridimensionamento attiva */
+        body.resize-mode-on .node.selected .resize-handle {
             display: block;
         }
 
@@ -187,6 +188,7 @@
     <button id="addImgBtn">Aggiungi immagine</button>
 
     <button id="connectorBtn">Connettore</button>
+    <button id="resizeModeBtn">Ridimensiona</button>
     <button id="deleteBtn">Cancella</button>
 
     <label>Bordo
@@ -218,6 +220,7 @@
     const addTextBtn = document.getElementById("addTextBtn");
     const addImgBtn = document.getElementById("addImgBtn");
     const connectorBtn = document.getElementById("connectorBtn");
+    const resizeModeBtn = document.getElementById("resizeModeBtn");
     const deleteBtn = document.getElementById("deleteBtn");
 
     const borderColorInput = document.getElementById("borderColorInput");
@@ -232,6 +235,8 @@
     let connections = []; // ogni connessione: { from, to, color }
 
     let connectorMode = false;
+    let resizeMode = false;
+
     let selectedNode = null;             // per nodi (testo o immagine)
     let selectionType = "none";          // "none" | "node" | "connection"
     let selectedConnectionIndex = -1;
@@ -313,6 +318,7 @@
 
     function startResize(node, corner, clientX, clientY) {
         if (connectorMode) return;
+        if (!resizeMode) return;
 
         clearSelection();
         selectedNode = node;
@@ -334,23 +340,19 @@
         let oppositeX, oppositeY;
         switch (corner) {
             case "se":
-                // angolo opposto = top-left
                 oppositeX = left;
                 oppositeY = top;
                 break;
             case "sw":
-                // angolo opposto = top-right
                 oppositeX = left + width;
                 oppositeY = top;
                 break;
             case "ne":
-                // angolo opposto = bottom-left
                 oppositeX = left;
                 oppositeY = top + height;
                 break;
             case "nw":
             default:
-                // angolo opposto = bottom-right
                 oppositeX = left + width;
                 oppositeY = top + height;
                 break;
@@ -443,7 +445,6 @@
         workspace.appendChild(node);
         nodes.push(node);
 
-        // calcola proporzioni dopo il layout
         requestAnimationFrame(() => {
             const rect = node.getBoundingClientRect();
             const ratio = rect.width / rect.height || 1;
@@ -493,7 +494,8 @@
         node.style.top = (50 + Math.random() * 200) + "px";
     }
 
-    // --- DRAG & DROP NODI (MOUSE + TOUCH), disattivato se connectorMode === true o se sto ridimensionando ---
+    // --- DRAG & DROP NODI (MOUSE + TOUCH)
+    // disattivato se: connectorMode === true OPPURE resizeMode === true OPPURE sto ridimensionando
 
     function makeDraggable(node) {
         let offsetX = 0;
@@ -503,10 +505,10 @@
         let startY = 0;
         let hasMoved = false;
 
-        const TAP_THRESHOLD = 5; // px: sotto questo è "tap", sopra è drag
+        const TAP_THRESHOLD = 5;
 
         function startDrag(clientX, clientY) {
-            if (connectorMode || isResizing) return;  // in modalità connettore o durante resize NON si trascina
+            if (connectorMode || isResizing || resizeMode) return;
             isDown = true;
             hasMoved = false;
             startX = clientX;
@@ -516,7 +518,7 @@
         }
 
         function moveDrag(clientX, clientY) {
-            if (!isDown || connectorMode || isResizing) return;
+            if (!isDown || connectorMode || isResizing || resizeMode) return;
 
             const dx = clientX - startX;
             const dy = clientY - startY;
@@ -535,7 +537,6 @@
             if (!isDown) return;
             isDown = false;
 
-            // Se non si è mosso quasi per nulla → tap → selezione
             if (!hasMoved) {
                 handleNodeClick(node);
             }
@@ -543,7 +544,7 @@
 
         // mouse
         node.addEventListener("mousedown", e => {
-            if (connectorMode || isResizing) return;
+            if (connectorMode || isResizing || resizeMode) return;
             startDrag(e.clientX, e.clientY);
         });
 
@@ -566,8 +567,7 @@
 
         // touch (iPad)
         node.addEventListener("touchstart", e => {
-            if (connectorMode) {
-                // in modalità connettore il tap verrà gestito in touchend come selezione
+            if (connectorMode || resizeMode) {
                 hasMoved = false;
                 isDown = false;
                 return;
@@ -576,7 +576,7 @@
             if (e.touches.length > 0) {
                 const t = e.touches[0];
                 startDrag(t.clientX, t.clientY);
-                e.preventDefault(); // blocca scroll/zoom pagina solo in drag
+                e.preventDefault();
             }
         }, { passive: false });
 
@@ -589,16 +589,15 @@
                 }
                 return;
             }
-            if (!isDown || connectorMode) return;
+            if (!isDown || connectorMode || resizeMode) return;
             if (e.touches.length > 0) {
                 const t = e.touches[0];
                 moveDrag(t.clientX, t.clientY);
-                e.preventDefault(); // evita scroll durante il drag
+                e.preventDefault();
             }
         }, { passive: false });
 
         node.addEventListener("touchend", e => {
-            // se siamo in modalità connettore, il tap serve per collegare
             if (connectorMode) {
                 handleNodeClick(node);
                 return;
@@ -607,14 +606,12 @@
                 endResize();
                 return;
             }
-            // se eravamo in drag
             if (isDown) {
                 const t = (e.changedTouches && e.changedTouches[0]) || null;
                 const clientX = t ? t.clientX : startX;
                 const clientY = t ? t.clientY : startY;
                 endDrag(clientX, clientY);
             } else {
-                // touch breve senza drag esplicito → tap
                 handleNodeClick(node);
             }
         }, { passive: false });
@@ -633,7 +630,7 @@
             isDown = false;
         });
 
-        // click desktop (lasciato per completezza)
+        // click desktop (per selezione rapida)
         node.addEventListener("click", e => {
             e.stopPropagation();
             handleNodeClick(node);
@@ -647,6 +644,11 @@
 
         if (connectorMode) {
             connectorBtn.classList.add("active");
+            // se attivo il connettore, spengo il ridimensionamento
+            resizeMode = false;
+            resizeModeBtn.classList.remove("active");
+            document.body.classList.remove("resize-mode-on");
+
             clearSelection();
         } else {
             connectorBtn.classList.remove("active");
@@ -657,8 +659,26 @@
         }
     });
 
+    // --- MODALITÀ RIDIMENSIONA (TOGGLE) ---
+
+    resizeModeBtn.addEventListener("click", () => {
+        resizeMode = !resizeMode;
+
+        if (resizeMode) {
+            resizeModeBtn.classList.add("active");
+            document.body.classList.add("resize-mode-on");
+
+            // se attivo il ridimensionamento, spengo il connettore
+            connectorMode = false;
+            connectorBtn.classList.remove("active");
+        } else {
+            resizeModeBtn.classList.remove("active");
+            document.body.classList.remove("resize-mode-on");
+            endResize();
+        }
+    });
+
     function handleNodeClick(node) {
-        // Se siamo in modalità connettore: primo nodo = sorgente, secondo = destinazione.
         if (connectorMode) {
             if (!selectedNode) {
                 selectedNode = node;
@@ -680,13 +700,11 @@
             return;
         }
 
-        // Modalità normale: selezione per colori / cancella
         clearSelection();
         selectedNode = node;
         node.classList.add("selected");
         selectionType = "node";
 
-        // aggiorno i pickers con i colori del nodo selezionato
         if (node.dataset.borderColor) {
             currentBorderColor = node.dataset.borderColor;
             borderColorInput.value = currentBorderColor;
@@ -721,11 +739,9 @@
 
     deleteBtn.addEventListener("click", () => {
         if (selectionType === "node" && selectedNode) {
-            // rimuovi tutte le connessioni legate al nodo
             connections = connections.filter(conn =>
                 conn.from !== selectedNode && conn.to !== selectedNode
             );
-            // rimuovi nodo dalla lista e dal DOM
             const idx = nodes.indexOf(selectedNode);
             if (idx !== -1) {
                 nodes.splice(idx, 1);
@@ -743,7 +759,7 @@
     // --- SELEZIONE FRECCE CON CLICK SU CANVAS ---
 
     canvas.addEventListener("click", (e) => {
-        if (connectorMode) return; // in modalità connettore ignoriamo
+        if (connectorMode) return;
 
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
@@ -773,7 +789,6 @@
             selectedConnectionIndex = foundIndex;
             drawConnections();
         } else {
-            // click "vuoto": deseleziona tutto
             clearSelection();
         }
     });
@@ -894,17 +909,10 @@
     // --- CANCELLA TUTTO ---
 
     clearAllBtn.addEventListener("click", () => {
-        // rimuovi nodi dal DOM
         nodes.forEach(node => node.remove());
         nodes.length = 0;
-
-        // svuota connessioni
         connections = [];
-
-        // azzera selezione
         clearSelection();
-
-        // pulisci canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
     });
 </script>
