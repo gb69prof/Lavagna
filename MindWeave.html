@@ -131,7 +131,7 @@
             border-color: red;
         }
 
-        /* Maniglie di ridimensionamento (visibili SOLO se è attivo il tasto Ridimensiona) */
+        /* Maniglie di ridimensionamento nodi (visibili SOLO se è attiva la modalità Ridimensiona) */
         .resize-handle {
             position: absolute;
             width: 10px;
@@ -144,7 +144,6 @@
             display: none;
         }
 
-        /* Le maniglie appaiono solo se: nodo selezionato + modalità ridimensionamento attiva */
         body.resize-mode-on .node.selected .resize-handle {
             display: block;
         }
@@ -177,7 +176,7 @@
             cursor: nwse-resize;
         }
 
-        /* Maniglie per le frecce libere */
+        /* Maniglie per frecce libere (start/end) */
         .arrow-handle {
             position: absolute;
             width: 14px;
@@ -253,7 +252,7 @@
     let freeArrowMode = false;   // crea frecce libere
     let resizeMode = false;      // ridimensiona nodi
 
-    let freeArrowTempStart = null; // punto di partenza in modalità freccia libera
+    let freeArrowTempStart = null; // punto di partenza per creazione freccia libera
 
     let selectedNode = null;
     let selectionType = "none";  // "none" | "node" | "connection" | "freeArrow"
@@ -265,11 +264,19 @@
     let currentResizedNode = null;
     let resizeData = null;
 
-    // drag maniglie frecce libere
+    // drag maniglie frecce libere (start/end)
     let arrowHandleDrag = {
         active: false,
         which: null,        // "start" | "end"
         arrowIndex: -1
+    };
+
+    // drag freccia intera
+    let arrowMoveDrag = {
+        active: false,
+        arrowIndex: -1,
+        lastX: 0,
+        lastY: 0
     };
 
     // colori correnti
@@ -446,7 +453,6 @@
         currentResizedNode.style.width = newWidth + "px";
         currentResizedNode.style.height = newHeight + "px";
 
-        // Scala il font per i nodi di testo (per le immagini è innocuo)
         const scaleFactor = newWidth / initialWidth;
         let newFontSize = initialFontSize * scaleFactor;
         if (newFontSize < 8) newFontSize = 8;
@@ -535,7 +541,7 @@
         node.style.top = (50 + Math.random() * 200) + "px";
     }
 
-    // --- DRAG NODI (MOUSE + TOUCH)
+    // --- DRAG NODI (MOUSE + TOUCH) ---
 
     function makeDraggable(node) {
         let offsetX = 0;
@@ -548,7 +554,7 @@
         const TAP_THRESHOLD = 5;
 
         function startDrag(clientX, clientY) {
-            if (connectorMode || isResizing || resizeMode || arrowHandleDrag.active) return;
+            if (connectorMode || isResizing || resizeMode || arrowHandleDrag.active || arrowMoveDrag.active) return;
             isDown = true;
             hasMoved = false;
             startX = clientX;
@@ -558,7 +564,7 @@
         }
 
         function moveDrag(clientX, clientY) {
-            if (!isDown || connectorMode || isResizing || resizeMode || arrowHandleDrag.active) return;
+            if (!isDown || connectorMode || isResizing || resizeMode || arrowHandleDrag.active || arrowMoveDrag.active) return;
 
             const dx = clientX - startX;
             const dy = clientY - startY;
@@ -584,7 +590,7 @@
 
         // mouse
         node.addEventListener("mousedown", e => {
-            if (connectorMode || isResizing || resizeMode || arrowHandleDrag.active) return;
+            if (connectorMode || isResizing || resizeMode || arrowHandleDrag.active || arrowMoveDrag.active) return;
             startDrag(e.clientX, e.clientY);
         });
 
@@ -607,7 +613,7 @@
 
         // touch (iPad)
         node.addEventListener("touchstart", e => {
-            if (connectorMode || resizeMode || arrowHandleDrag.active) {
+            if (connectorMode || resizeMode || arrowHandleDrag.active || arrowMoveDrag.active) {
                 hasMoved = false;
                 isDown = false;
                 return;
@@ -629,7 +635,7 @@
                 }
                 return;
             }
-            if (!isDown || connectorMode || resizeMode || arrowHandleDrag.active) return;
+            if (!isDown || connectorMode || resizeMode || arrowHandleDrag.active || arrowMoveDrag.active) return;
             if (e.touches.length > 0) {
                 const t = e.touches[0];
                 moveDrag(t.clientX, t.clientY);
@@ -670,7 +676,6 @@
             isDown = false;
         });
 
-        // click desktop (per selezione rapida)
         node.addEventListener("click", e => {
             e.stopPropagation();
             handleNodeClick(node);
@@ -684,7 +689,6 @@
 
         if (connectorMode) {
             connectorBtn.classList.add("active");
-            // spengo altre modalità
             resizeMode = false;
             resizeModeBtn.classList.remove("active");
             document.body.classList.remove("resize-mode-on");
@@ -709,7 +713,6 @@
         if (freeArrowMode) {
             freeArrowBtn.classList.add("active");
             freeArrowTempStart = null;
-            // spengo altre modalità
             connectorMode = false;
             connectorBtn.classList.remove("active");
             resizeMode = false;
@@ -722,21 +725,18 @@
         }
     });
 
-    // click su workspace/canvas per disegnare frecce libere
+    // creazione freccia libera: due click nello spazio lavoro (non su nodi)
     workspace.addEventListener("click", (e) => {
-        // se clicco sopra un nodo o la toolbar, ignoro questo handler
-        if (e.target !== workspace && e.target !== canvas) return;
         if (!freeArrowMode) return;
+        if (e.target !== workspace && e.target !== canvas) return;
 
         const rect = workspace.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
 
         if (!freeArrowTempStart) {
-            // primo click: punto di partenza
             freeArrowTempStart = { x, y };
         } else {
-            // secondo click: crea freccia
             const arrow = {
                 x1: freeArrowTempStart.x,
                 y1: freeArrowTempStart.y,
@@ -759,7 +759,6 @@
             resizeModeBtn.classList.add("active");
             document.body.classList.add("resize-mode-on");
 
-            // spengo altre modalità
             connectorMode = false;
             connectorBtn.classList.remove("active");
             freeArrowMode = false;
@@ -776,7 +775,6 @@
 
     function handleNodeClick(node) {
         if (connectorMode) {
-            // collega nodi: primo click = from, secondo = to
             if (!selectedNode) {
                 selectedNode = node;
                 node.classList.add("selected");
@@ -832,7 +830,7 @@
         currentArrowColor = arrowColorInput.value;
     });
 
-    // --- CANCELLA: nodo, connessione tra nodi, freccia libera ---
+    // --- CANCELLA ---
 
     deleteBtn.addEventListener("click", () => {
         if (selectionType === "node" && selectedNode) {
@@ -857,7 +855,7 @@
         }
     });
 
-    // --- SELEZIONE FRECCE (nodi + libere) CON CLICK SU CANVAS ---
+    // --- SELEZIONE FRECCE (nodi + libere) ---
 
     canvas.addEventListener("click", (e) => {
         if (connectorMode || freeArrowMode) return;
@@ -871,7 +869,7 @@
         let minDistFree = Infinity;
         let minDistConn = Infinity;
 
-        // prima controllo frecce libere
+        // frecce libere
         freeArrows.forEach((arrow, index) => {
             const dist = pointToSegmentDistance(x, y, arrow.x1, arrow.y1, arrow.x2, arrow.y2);
             if (dist < 10 && dist < minDistFree) {
@@ -880,7 +878,7 @@
             }
         });
 
-        // poi connessioni tra nodi
+        // connessioni tra nodi
         connections.forEach((conn, index) => {
             const fromNode = conn.from;
             const toNode = conn.to;
@@ -926,7 +924,7 @@
         return Math.hypot(px - cx, py - cy);
     }
 
-    // --- MANIGLIE PER FRECCE LIBERE ---
+    // --- MANIGLIE FRECCE LIBERE (start/end) ---
 
     function removeArrowHandles() {
         const old = workspace.querySelectorAll(".arrow-handle");
@@ -943,7 +941,6 @@
         const arrow = freeArrows[selectedFreeArrowIndex];
         const workspaceRect = workspace.getBoundingClientRect();
 
-        // start handle
         const hStart = document.createElement("div");
         hStart.className = "arrow-handle";
         hStart.style.left = (arrow.x1 + workspaceRect.left - 7) + "px";
@@ -951,7 +948,6 @@
         hStart.dataset.which = "start";
         workspace.appendChild(hStart);
 
-        // end handle
         const hEnd = document.createElement("div");
         hEnd.className = "arrow-handle";
         hEnd.style.left = (arrow.x2 + workspaceRect.left - 7) + "px";
@@ -1013,7 +1009,6 @@
         }
 
         drawAll();
-        // aggiorno la posizione visuale delle maniglie
         updateArrowHandles();
     }
 
@@ -1021,6 +1016,9 @@
         if (arrowHandleDrag.active) {
             e.preventDefault();
             moveArrowHandle(e.clientX, e.clientY);
+        } else if (arrowMoveDrag.active) {
+            e.preventDefault();
+            moveWholeArrow(e.clientX, e.clientY);
         }
     });
 
@@ -1028,14 +1026,22 @@
         if (arrowHandleDrag.active) {
             arrowHandleDrag.active = false;
         }
+        if (arrowMoveDrag.active) {
+            arrowMoveDrag.active = false;
+        }
     });
 
     window.addEventListener("touchmove", e => {
-        if (!arrowHandleDrag.active) return;
-        if (e.touches.length > 0) {
-            const t = e.touches[0];
-            moveArrowHandle(t.clientX, t.clientY);
-            e.preventDefault();
+        if (arrowHandleDrag.active || arrowMoveDrag.active) {
+            if (e.touches.length > 0) {
+                const t = e.touches[0];
+                if (arrowHandleDrag.active) {
+                    moveArrowHandle(t.clientX, t.clientY);
+                } else if (arrowMoveDrag.active) {
+                    moveWholeArrow(t.clientX, t.clientY);
+                }
+                e.preventDefault();
+            }
         }
     }, { passive: false });
 
@@ -1043,15 +1049,87 @@
         if (arrowHandleDrag.active) {
             arrowHandleDrag.active = false;
         }
+        if (arrowMoveDrag.active) {
+            arrowMoveDrag.active = false;
+        }
     });
 
     window.addEventListener("touchcancel", () => {
         if (arrowHandleDrag.active) {
             arrowHandleDrag.active = false;
         }
+        if (arrowMoveDrag.active) {
+            arrowMoveDrag.active = false;
+        }
     });
 
-    // --- DISEGNO DI TUTTO (connessioni + frecce libere) ---
+    // --- DRAG FRECCIA INTERA (traslazione) ---
+
+    canvas.addEventListener("mousedown", (e) => {
+        if (selectionType !== "freeArrow" || selectedFreeArrowIndex < 0) return;
+        if (freeArrowMode || connectorMode) return; // in queste modalità non si trascina la freccia
+
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        const arrow = freeArrows[selectedFreeArrowIndex];
+        const dist = pointToSegmentDistance(x, y, arrow.x1, arrow.y1, arrow.x2, arrow.y2);
+
+        if (dist < 10) {
+            arrowMoveDrag.active = true;
+            arrowMoveDrag.arrowIndex = selectedFreeArrowIndex;
+            arrowMoveDrag.lastX = x;
+            arrowMoveDrag.lastY = y;
+            e.preventDefault();
+        }
+    });
+
+    canvas.addEventListener("touchstart", (e) => {
+        if (selectionType !== "freeArrow" || selectedFreeArrowIndex < 0) return;
+        if (freeArrowMode || connectorMode) return;
+        if (e.touches.length === 0) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const t = e.touches[0];
+        const x = t.clientX - rect.left;
+        const y = t.clientY - rect.top;
+
+        const arrow = freeArrows[selectedFreeArrowIndex];
+        const dist = pointToSegmentDistance(x, y, arrow.x1, arrow.y1, arrow.x2, arrow.y2);
+
+        if (dist < 10) {
+            arrowMoveDrag.active = true;
+            arrowMoveDrag.arrowIndex = selectedFreeArrowIndex;
+            arrowMoveDrag.lastX = x;
+            arrowMoveDrag.lastY = y;
+            e.preventDefault();
+        }
+    }, { passive: false });
+
+    function moveWholeArrow(clientX, clientY) {
+        if (!arrowMoveDrag.active || arrowMoveDrag.arrowIndex < 0) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+
+        const dx = x - arrowMoveDrag.lastX;
+        const dy = y - arrowMoveDrag.lastY;
+        arrowMoveDrag.lastX = x;
+        arrowMoveDrag.lastY = y;
+
+        const arrow = freeArrows[arrowMoveDrag.arrowIndex];
+        arrow.x1 += dx;
+        arrow.y1 += dy;
+        arrow.x2 += dx;
+        arrow.y2 += dy;
+
+        drawAll();
+        updateArrowHandles();
+    }
+
+    // --- DISEGNO DI TUTTO ---
 
     function drawAll() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
