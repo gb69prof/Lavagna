@@ -110,16 +110,70 @@
             touch-action: none; /* qui si trascina, non si scrolla */
             font-size: 16px;
             color: #000;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            min-width: 60px;
+            min-height: 40px;
         }
 
         .node img {
-          max-width: 150px;
-          max-height: 150px;
-          pointer-events: none; /* trascini il contenitore, non l’immagine */
+            width: 100%;
+            height: 100%;
+            max-width: none;
+            max-height: none;
+            object-fit: contain;
+            pointer-events: none; /* trascini il contenitore, non l’immagine */
         }
 
         .node.selected {
             border-color: red;
+        }
+
+        /* Maniglie di ridimensionamento (visibili solo sul nodo selezionato) */
+        .resize-handle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            border: 1px solid #333;
+            background: #ffd54f;
+            box-shadow: 0 0 0 1px #222;
+            z-index: 3;
+            display: none;
+        }
+
+        .node.selected .resize-handle {
+            display: block;
+        }
+
+        .resize-handle.nw {
+            top: -6px;
+            left: -6px;
+            cursor: nwse-resize;
+        }
+
+        .resize-handle.ne {
+            top: -6px;
+            right: -6px;
+            cursor: nesw-resize;
+        }
+
+        .resize-handle.se {
+            bottom: -6px;
+            right: -6px;
+            cursor: nwse-resize;
+        }
+
+        .resize-handle.sw {
+            bottom: -6px;
+            left: -6px;
+            cursor: nesw-resize;
+        }
+
+        .node.resizing {
+            cursor: nwse-resize;
         }
     </style>
 </head>
@@ -182,6 +236,11 @@
     let selectionType = "none";          // "none" | "node" | "connection"
     let selectedConnectionIndex = -1;
 
+    // ridimensionamento
+    let isResizing = false;
+    let currentResizedNode = null;
+    let resizeData = null;
+
     // colori correnti
     let currentBorderColor = borderColorInput.value;
     let currentTextColor = textColorInput.value;
@@ -223,6 +282,147 @@
         node.dataset.textColor = currentTextColor;
     }
 
+    // --- MANIGLIE DI RIDIMENSIONAMENTO ---
+
+    function addResizeHandles(node) {
+        const corners = ["nw", "ne", "se", "sw"];
+        corners.forEach(corner => {
+            const handle = document.createElement("div");
+            handle.className = "resize-handle " + corner;
+            handle.dataset.corner = corner;
+
+            handle.addEventListener("mousedown", e => {
+                e.stopPropagation();
+                e.preventDefault();
+                const { clientX, clientY } = e;
+                startResize(node, corner, clientX, clientY);
+            });
+
+            handle.addEventListener("touchstart", e => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (e.touches.length > 0) {
+                    const t = e.touches[0];
+                    startResize(node, corner, t.clientX, t.clientY);
+                }
+            }, { passive: false });
+
+            node.appendChild(handle);
+        });
+    }
+
+    function startResize(node, corner, clientX, clientY) {
+        if (connectorMode) return;
+
+        clearSelection();
+        selectedNode = node;
+        selectionType = "node";
+        node.classList.add("selected", "resizing");
+
+        const workspaceRect = workspace.getBoundingClientRect();
+        const rect = node.getBoundingClientRect();
+        const left = rect.left - workspaceRect.left;
+        const top = rect.top - workspaceRect.top;
+        const width = rect.width;
+        const height = rect.height;
+
+        let aspect = parseFloat(node.dataset.aspectRatio);
+        if (!aspect || !isFinite(aspect)) {
+            aspect = width / height || 1;
+        }
+
+        let oppositeX, oppositeY;
+        switch (corner) {
+            case "se":
+                // angolo opposto = top-left
+                oppositeX = left;
+                oppositeY = top;
+                break;
+            case "sw":
+                // angolo opposto = top-right
+                oppositeX = left + width;
+                oppositeY = top;
+                break;
+            case "ne":
+                // angolo opposto = bottom-left
+                oppositeX = left;
+                oppositeY = top + height;
+                break;
+            case "nw":
+            default:
+                // angolo opposto = bottom-right
+                oppositeX = left + width;
+                oppositeY = top + height;
+                break;
+        }
+
+        isResizing = true;
+        currentResizedNode = node;
+        resizeData = {
+            corner,
+            oppositeX,
+            oppositeY,
+            aspect,
+            minSize: 40
+        };
+
+        updateResize(clientX, clientY);
+    }
+
+    function updateResize(clientX, clientY) {
+        if (!isResizing || !currentResizedNode || !resizeData) return;
+
+        const workspaceRect = workspace.getBoundingClientRect();
+        const pointerX = clientX - workspaceRect.left;
+
+        const { corner, oppositeX, oppositeY, aspect, minSize } = resizeData;
+
+        let newWidth = Math.abs(pointerX - oppositeX);
+        if (!isFinite(newWidth) || newWidth < minSize) {
+            newWidth = minSize;
+        }
+        const newHeight = newWidth / aspect;
+
+        let newLeft, newTop;
+        switch (corner) {
+            case "se":
+                newLeft = oppositeX;
+                newTop = oppositeY;
+                break;
+            case "sw":
+                newLeft = oppositeX - newWidth;
+                newTop = oppositeY;
+                break;
+            case "ne":
+                newLeft = oppositeX;
+                newTop = oppositeY - newHeight;
+                break;
+            case "nw":
+            default:
+                newLeft = oppositeX - newWidth;
+                newTop = oppositeY - newHeight;
+                break;
+        }
+
+        currentResizedNode.style.left = newLeft + "px";
+        currentResizedNode.style.top = newTop + "px";
+        currentResizedNode.style.width = newWidth + "px";
+        currentResizedNode.style.height = newHeight + "px";
+
+        drawConnections();
+    }
+
+    function endResize() {
+        if (!isResizing) return;
+        isResizing = false;
+        if (currentResizedNode) {
+            currentResizedNode.classList.remove("resizing");
+        }
+        currentResizedNode = null;
+        resizeData = null;
+        drawConnections();
+    }
+
     // --- CREAZIONE NODI ---
 
     addTextBtn.addEventListener("click", addTextNode);
@@ -242,6 +442,14 @@
 
         workspace.appendChild(node);
         nodes.push(node);
+
+        // calcola proporzioni dopo il layout
+        requestAnimationFrame(() => {
+            const rect = node.getBoundingClientRect();
+            const ratio = rect.width / rect.height || 1;
+            node.dataset.aspectRatio = ratio;
+            addResizeHandles(node);
+        });
     }
 
     function addImageNode() {
@@ -252,7 +460,10 @@
         reader.onload = function (e) {
             const node = document.createElement("div");
             node.className = "node";
-            node.innerHTML = `<img src="${e.target.result}">`;
+
+            const img = document.createElement("img");
+            img.src = e.target.result;
+            node.appendChild(img);
 
             positionNode(node);
             applyNodeStyle(node);
@@ -260,6 +471,19 @@
 
             workspace.appendChild(node);
             nodes.push(node);
+
+            const setupImageNode = () => {
+                const rect = node.getBoundingClientRect();
+                const ratio = rect.width / rect.height || 1;
+                node.dataset.aspectRatio = ratio;
+                addResizeHandles(node);
+            };
+
+            if (img.complete) {
+                setupImageNode();
+            } else {
+                img.onload = setupImageNode;
+            }
         };
         reader.readAsDataURL(file);
     }
@@ -269,7 +493,7 @@
         node.style.top = (50 + Math.random() * 200) + "px";
     }
 
-    // --- DRAG & DROP NODI (MOUSE + TOUCH), disattivato se connectorMode === true ---
+    // --- DRAG & DROP NODI (MOUSE + TOUCH), disattivato se connectorMode === true o se sto ridimensionando ---
 
     function makeDraggable(node) {
         let offsetX = 0;
@@ -282,7 +506,7 @@
         const TAP_THRESHOLD = 5; // px: sotto questo è "tap", sopra è drag
 
         function startDrag(clientX, clientY) {
-            if (connectorMode) return;  // in modalità connettore NON si trascina
+            if (connectorMode || isResizing) return;  // in modalità connettore o durante resize NON si trascina
             isDown = true;
             hasMoved = false;
             startX = clientX;
@@ -292,7 +516,7 @@
         }
 
         function moveDrag(clientX, clientY) {
-            if (!isDown || connectorMode) return;
+            if (!isDown || connectorMode || isResizing) return;
 
             const dx = clientX - startX;
             const dy = clientY - startY;
@@ -319,15 +543,24 @@
 
         // mouse
         node.addEventListener("mousedown", e => {
-            if (connectorMode) return;
+            if (connectorMode || isResizing) return;
             startDrag(e.clientX, e.clientY);
         });
 
         window.addEventListener("mousemove", e => {
+            if (isResizing && currentResizedNode === node) {
+                updateResize(e.clientX, e.clientY);
+                e.preventDefault();
+                return;
+            }
             moveDrag(e.clientX, e.clientY);
         });
 
         window.addEventListener("mouseup", e => {
+            if (isResizing && currentResizedNode === node) {
+                endResize();
+                return;
+            }
             endDrag(e.clientX, e.clientY);
         });
 
@@ -339,6 +572,7 @@
                 isDown = false;
                 return;
             }
+            if (isResizing) return;
             if (e.touches.length > 0) {
                 const t = e.touches[0];
                 startDrag(t.clientX, t.clientY);
@@ -347,6 +581,14 @@
         }, { passive: false });
 
         window.addEventListener("touchmove", e => {
+            if (isResizing && currentResizedNode === node) {
+                if (e.touches.length > 0) {
+                    const t = e.touches[0];
+                    updateResize(t.clientX, t.clientY);
+                    e.preventDefault();
+                }
+                return;
+            }
             if (!isDown || connectorMode) return;
             if (e.touches.length > 0) {
                 const t = e.touches[0];
@@ -359,6 +601,10 @@
             // se siamo in modalità connettore, il tap serve per collegare
             if (connectorMode) {
                 handleNodeClick(node);
+                return;
+            }
+            if (isResizing && currentResizedNode === node) {
+                endResize();
                 return;
             }
             // se eravamo in drag
@@ -374,10 +620,16 @@
         }, { passive: false });
 
         window.addEventListener("touchend", () => {
+            if (isResizing && currentResizedNode === node) {
+                endResize();
+            }
             isDown = false;
         });
 
         window.addEventListener("touchcancel", () => {
+            if (isResizing && currentResizedNode === node) {
+                endResize();
+            }
             isDown = false;
         });
 
