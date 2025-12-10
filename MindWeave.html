@@ -198,8 +198,12 @@
     <button id="connectorBtn">Connettore nodi</button>
     <button id="freeArrowBtn">Freccia</button>
     <button id="arrowLengthModeBtn">Allunga freccia</button>
+    <button id="arrowRotateMinusBtn">-</button>
     <button id="arrowRotateModeBtn">Ruota freccia</button>
+    <button id="arrowRotatePlusBtn">+</button>
     <button id="resizeModeBtn">Ridimensiona nodo</button>
+    <button id="nodeSmallerBtn">Nodo -</button>
+    <button id="nodeLargerBtn">Nodo +</button>
     <button id="deleteBtn">Cancella</button>
 
     <label>Bordo
@@ -234,7 +238,11 @@
     const freeArrowBtn = document.getElementById("freeArrowBtn");
     const arrowLengthModeBtn = document.getElementById("arrowLengthModeBtn");
     const arrowRotateModeBtn = document.getElementById("arrowRotateModeBtn");
+    const arrowRotateMinusBtn = document.getElementById("arrowRotateMinusBtn");
+    const arrowRotatePlusBtn = document.getElementById("arrowRotatePlusBtn");
     const resizeModeBtn = document.getElementById("resizeModeBtn");
+    const nodeSmallerBtn = document.getElementById("nodeSmallerBtn");
+    const nodeLargerBtn = document.getElementById("nodeLargerBtn");
     const deleteBtn = document.getElementById("deleteBtn");
 
     const borderColorInput = document.getElementById("borderColorInput");
@@ -474,6 +482,53 @@
         resizeData = null;
         drawAll();
     }
+
+    // --- RIDIMENSIONAMENTO NODO VIA BOTTONI (iPad friendly) ---
+
+    function scaleSelectedNode(factor) {
+        if (selectionType !== "node" || !selectedNode) return;
+
+        const workspaceRect = workspace.getBoundingClientRect();
+        const rect = selectedNode.getBoundingClientRect();
+
+        const centerX = rect.left - workspaceRect.left + rect.width / 2;
+        const centerY = rect.top - workspaceRect.top + rect.height / 2;
+
+        let newWidth = rect.width * factor;
+        let newHeight = rect.height * factor;
+
+        const MIN_W = 40;
+        const MIN_H = 30;
+        if (newWidth < MIN_W) newWidth = MIN_W;
+        if (newHeight < MIN_H) newHeight = MIN_H;
+
+        const newLeft = centerX - newWidth / 2;
+        const newTop = centerY - newHeight / 2;
+
+        selectedNode.style.left = newLeft + "px";
+        selectedNode.style.top = newTop + "px";
+        selectedNode.style.width = newWidth + "px";
+        selectedNode.style.height = newHeight + "px";
+
+        // font adattato alla nuova dimensione
+        const currentFontSize = parseFloat(getComputedStyle(selectedNode).fontSize) || 16;
+        let newFontSize = currentFontSize * factor;
+        if (newFontSize < 8) newFontSize = 8;
+        selectedNode.style.fontSize = newFontSize + "px";
+
+        // aggiorna rapporto d’aspetto
+        selectedNode.dataset.aspectRatio = newWidth / newHeight;
+
+        drawAll();
+    }
+
+    nodeLargerBtn.addEventListener("click", () => {
+        scaleSelectedNode(1.1);
+    });
+
+    nodeSmallerBtn.addEventListener("click", () => {
+        scaleSelectedNode(0.9);
+    });
 
     // --- CREAZIONE NODI ---
 
@@ -797,6 +852,47 @@
             arrowRotateModeBtn.classList.remove("active");
         }
         updateArrowHandles();
+    });
+
+    // Rotazione “armonica” con bottoni + / - (5° per click)
+
+    function rotateSelectedArrowBy(deltaDegrees) {
+        if (selectionType !== "freeArrow" || selectedFreeArrowIndex < 0) return;
+
+        const arrow = freeArrows[selectedFreeArrowIndex];
+        const rad = deltaDegrees * Math.PI / 180;
+
+        const cx = (arrow.x1 + arrow.x2) / 2;
+        const cy = (arrow.y1 + arrow.y2) / 2;
+
+        const dx1 = arrow.x1 - cx;
+        const dy1 = arrow.y1 - cy;
+        const dx2 = arrow.x2 - cx;
+        const dy2 = arrow.y2 - cy;
+
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+
+        const nx1 = dx1 * cos - dy1 * sin;
+        const ny1 = dx1 * sin + dy1 * cos;
+        const nx2 = dx2 * cos - dy2 * sin;
+        const ny2 = dx2 * sin + dy2 * cos;
+
+        arrow.x1 = cx + nx1;
+        arrow.y1 = cy + ny1;
+        arrow.x2 = cx + nx2;
+        arrow.y2 = cy + ny2;
+
+        drawAll();
+        updateArrowHandles();
+    }
+
+    arrowRotatePlusBtn.addEventListener("click", () => {
+        rotateSelectedArrowBy(5); // senso orario
+    });
+
+    arrowRotateMinusBtn.addEventListener("click", () => {
+        rotateSelectedArrowBy(-5); // senso antiorario
     });
 
     // --- CLICK SUI NODI ---
