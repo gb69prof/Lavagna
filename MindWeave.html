@@ -135,7 +135,7 @@
             border-color: red;
         }
 
-        /* Maniglie di ridimensionamento nodi (opzionali, puoi ignorarle) */
+        /* Maniglie di ridimensionamento nodi (opzionali) */
         .resize-handle {
             position: absolute;
             width: 10px;
@@ -595,7 +595,8 @@
         const TAP_THRESHOLD = 5;
 
         function startDrag(clientX, clientY) {
-            if (connectorMode || isResizing || resizeMode || arrowMoveDrag.active) return;
+            // se sto collegando, ridimensionando o ho una freccia selezionata → non trascino il nodo
+            if (connectorMode || isResizing || resizeMode || arrowMoveDrag.active || selectionType === "freeArrow" || freeArrowMode) return;
             isDown = true;
             hasMoved = false;
             startX = clientX;
@@ -630,7 +631,6 @@
         }
 
         node.addEventListener("mousedown", e => {
-            if (connectorMode || isResizing || resizeMode || arrowMoveDrag.active) return;
             startDrag(e.clientX, e.clientY);
         });
 
@@ -652,12 +652,6 @@
         });
 
         node.addEventListener("touchstart", e => {
-            if (connectorMode || resizeMode || arrowMoveDrag.active) {
-                hasMoved = false;
-                isDown = false;
-                return;
-            }
-            if (isResizing) return;
             if (e.touches.length > 0) {
                 const t = e.touches[0];
                 startDrag(t.clientX, t.clientY);
@@ -716,7 +710,8 @@
         });
 
         node.addEventListener("click", e => {
-            e.stopPropagation();
+            // NON blocco la propagazione, così il workspace
+            // può comunque vedere il click (per selezionare frecce)
             handleNodeClick(node);
         });
     }
@@ -765,19 +760,16 @@
     });
 
     // CLICK SUL WORKSPACE:
-    // - se freccia libera attiva → crea freccia
-    // - altrimenti → seleziona frecce / connessioni
+    // - se freccia libera attiva → crea freccia (anche cliccando sull'immagine)
+    // - altrimenti → seleziona frecce / connessioni (anche sopra i nodi)
+
     workspace.addEventListener("click", (e) => {
-        const targetIsSpace = (e.target === workspace || e.target === canvas);
+        const rect = workspace.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
 
-        // CREA FRECCIA LIBERA
+        // CREA FRECCIA LIBERA OVUNQUE
         if (freeArrowMode) {
-            if (!targetIsSpace) return;
-
-            const rect = workspace.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-
             if (!freeArrowTempStart) {
                 freeArrowTempStart = { x, y };
             } else {
@@ -795,12 +787,10 @@
             return;
         }
 
-        // SELEZIONE FRECCE/CONNESSIONI SOLO SE CLICK SU SPAZIO VUOTO
-        if (!targetIsSpace || connectorMode) return;
+        // in modalità connettore gestiamo solo con i click sui nodi
+        if (connectorMode) return;
 
-        const rect = workspace.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
+        const clickedNode = e.target.closest(".node");
 
         let foundFreeIndex = -1;
         let foundConnIndex = -1;
@@ -844,7 +834,11 @@
             selectedConnectionIndex = foundConnIndex;
             drawAll();
         } else {
-            clearSelection();
+            // se clicco sul vuoto → pulisco la selezione
+            // se clicco su un nodo e non c'è freccia → lascio la selezione del nodo
+            if (!clickedNode) {
+                clearSelection();
+            }
         }
     });
 
@@ -963,6 +957,9 @@
     // --- CLICK SUI NODI ---
 
     function handleNodeClick(node) {
+        // se sto creando frecce libere non seleziono il nodo
+        if (freeArrowMode) return;
+
         if (connectorMode) {
             if (!selectedNode) {
                 selectedNode = node;
@@ -1044,12 +1041,11 @@
         }
     });
 
-    // --- DRAG FRECCIA INTERA (sul workspace, non sul canvas) ---
+    // --- DRAG FRECCIA INTERA (anche sopra l'immagine) ---
 
     workspace.addEventListener("mousedown", (e) => {
         if (selectionType !== "freeArrow" || selectedFreeArrowIndex < 0) return;
         if (freeArrowMode || connectorMode) return;
-        if (e.target !== workspace && e.target !== canvas) return;
 
         const rect = workspace.getBoundingClientRect();
         const x = e.clientX - rect.left;
@@ -1071,7 +1067,6 @@
         if (selectionType !== "freeArrow" || selectedFreeArrowIndex < 0) return;
         if (freeArrowMode || connectorMode) return;
         if (e.touches.length === 0) return;
-        if (e.target !== workspace && e.target !== canvas) return;
 
         const rect = workspace.getBoundingClientRect();
         const t = e.touches[0];
@@ -1292,4 +1287,3 @@
 
 </body>
 </html>
-
