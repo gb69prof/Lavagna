@@ -107,8 +107,8 @@
             cursor: move;
             user-select: none;
             -webkit-user-select: none;
-            touch-action: none; /* qui si trascina, non si scrolla */
-            font-size: 16px;
+            touch-action: none;
+            font-size: 16px; /* font di base, poi viene scalato in JS */
             color: #000;
             display: inline-flex;
             align-items: center;
@@ -337,6 +337,9 @@
             aspect = width / height || 1;
         }
 
+        // prendo il font-size attuale del nodo (serve anche per i successivi resize)
+        const computedFontSize = parseFloat(getComputedStyle(node).fontSize) || 16;
+
         let oppositeX, oppositeY;
         switch (corner) {
             case "se":
@@ -365,7 +368,9 @@
             oppositeX,
             oppositeY,
             aspect,
-            minSize: 40
+            minSize: 40,
+            initialWidth: width,
+            initialFontSize: computedFontSize
         };
 
         updateResize(clientX, clientY);
@@ -377,7 +382,7 @@
         const workspaceRect = workspace.getBoundingClientRect();
         const pointerX = clientX - workspaceRect.left;
 
-        const { corner, oppositeX, oppositeY, aspect, minSize } = resizeData;
+        const { corner, oppositeX, oppositeY, aspect, minSize, initialWidth, initialFontSize } = resizeData;
 
         let newWidth = Math.abs(pointerX - oppositeX);
         if (!isFinite(newWidth) || newWidth < minSize) {
@@ -410,6 +415,12 @@
         currentResizedNode.style.top = newTop + "px";
         currentResizedNode.style.width = newWidth + "px";
         currentResizedNode.style.height = newHeight + "px";
+
+        // SCALA IL FONT IN PROPORZIONE ALLA LARGHEZZA
+        const scaleFactor = newWidth / initialWidth;
+        let newFontSize = initialFontSize * scaleFactor;
+        if (newFontSize < 8) newFontSize = 8; // non farlo diventare invisibile
+        currentResizedNode.style.fontSize = newFontSize + "px";
 
         drawConnections();
     }
