@@ -33,7 +33,7 @@
             display: flex;
             gap: 10px;
             align-items: center;
-            z-index: 10;
+            z-index: 10000;
             flex-wrap: wrap;
             font-size: 14px;
         }
@@ -90,14 +90,14 @@
             touch-action: none;
         }
 
-        /* CANVAS: frecce sempre in primo piano (z-index alto) ma non cattura i click */
+        /* CANVAS: frecce sempre in primo piano, ma non cattura i click */
         #canvas {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            z-index: 5;
+            z-index: 9999;
             pointer-events: none;
         }
 
@@ -119,7 +119,7 @@
             text-align: center;
             min-width: 60px;
             min-height: 40px;
-            z-index: 3; /* sotto le frecce */
+            z-index: 3;
         }
 
         .node img {
@@ -135,7 +135,7 @@
             border-color: red;
         }
 
-        /* Maniglie di ridimensionamento nodi */
+        /* Maniglie di ridimensionamento nodi (opzionali, puoi ignorarle) */
         .resize-handle {
             position: absolute;
             width: 10px;
@@ -144,7 +144,7 @@
             border: 1px solid #333;
             background: #ffd54f;
             box-shadow: 0 0 0 1px #222;
-            z-index: 4; /* sopra il nodo, sotto le frecce */
+            z-index: 4;
             display: none;
         }
 
@@ -176,18 +176,6 @@
         .node.resizing {
             cursor: nwse-resize;
         }
-
-        /* Maniglie freccia: lunghezza e rotazione */
-        .arrow-handle {
-            position: absolute;
-            width: 14px;
-            height: 14px;
-            border-radius: 50%;
-            border: 2px solid #000;
-            background: #ffeb3b;
-            box-shadow: 0 0 0 1px #222;
-            z-index: 6; /* sopra tutto */
-        }
     </style>
 </head>
 <body>
@@ -201,10 +189,13 @@
 
     <button id="connectorBtn">Connettore nodi</button>
     <button id="freeArrowBtn">Freccia</button>
-    <button id="arrowLengthModeBtn">Allunga freccia</button>
+    <button id="arrowShorterBtn">Freccia -</button>
+    <button id="arrowLongerBtn">Freccia +</button>
+
+    <span style="color:#fff;">Ruota freccia</span>
     <button id="arrowRotateMinusBtn">-</button>
-    <button id="arrowRotateModeBtn">Ruota freccia</button>
     <button id="arrowRotatePlusBtn">+</button>
+
     <button id="resizeModeBtn">Ridimensiona nodo</button>
     <button id="nodeSmallerBtn">Nodo -</button>
     <button id="nodeLargerBtn">Nodo +</button>
@@ -240,8 +231,8 @@
     const addImgBtn = document.getElementById("addImgBtn");
     const connectorBtn = document.getElementById("connectorBtn");
     const freeArrowBtn = document.getElementById("freeArrowBtn");
-    const arrowLengthModeBtn = document.getElementById("arrowLengthModeBtn");
-    const arrowRotateModeBtn = document.getElementById("arrowRotateModeBtn");
+    const arrowShorterBtn = document.getElementById("arrowShorterBtn");
+    const arrowLongerBtn = document.getElementById("arrowLongerBtn");
     const arrowRotateMinusBtn = document.getElementById("arrowRotateMinusBtn");
     const arrowRotatePlusBtn = document.getElementById("arrowRotatePlusBtn");
     const resizeModeBtn = document.getElementById("resizeModeBtn");
@@ -264,8 +255,6 @@
     let connectorMode = false;   // collega nodi
     let freeArrowMode = false;   // crea frecce libere
     let resizeMode = false;      // ridimensiona nodi
-    let arrowLengthMode = false; // maniglia lunghezza
-    let arrowRotateMode = false; // maniglia rotazione
 
     let freeArrowTempStart = null; // punto di partenza freccia libera
 
@@ -278,13 +267,6 @@
     let isResizing = false;
     let currentResizedNode = null;
     let resizeData = null;
-
-    // drag maniglie freccia
-    let arrowHandleDrag = {
-        active: false,
-        which: null,        // "length" | "rotate"
-        arrowIndex: -1
-    };
 
     // drag freccia intera
     let arrowMoveDrag = {
@@ -323,7 +305,6 @@
 
     function clearFreeArrowSelection() {
         selectedFreeArrowIndex = -1;
-        removeArrowHandles();
     }
 
     function clearSelection() {
@@ -341,7 +322,7 @@
         node.dataset.textColor = currentTextColor;
     }
 
-    // --- MANIGLIE RIDIMENSIONAMENTO NODI ---
+    // --- MANIGLIE RIDIMENSIONAMENTO NODI (facoltative) ---
 
     function addResizeHandles(node) {
         const corners = ["nw", "ne", "se", "sw"];
@@ -614,7 +595,7 @@
         const TAP_THRESHOLD = 5;
 
         function startDrag(clientX, clientY) {
-            if (connectorMode || isResizing || resizeMode || arrowHandleDrag.active || arrowMoveDrag.active) return;
+            if (connectorMode || isResizing || resizeMode || arrowMoveDrag.active) return;
             isDown = true;
             hasMoved = false;
             startX = clientX;
@@ -624,7 +605,7 @@
         }
 
         function moveDrag(clientX, clientY) {
-            if (!isDown || connectorMode || isResizing || resizeMode || arrowHandleDrag.active || arrowMoveDrag.active) return;
+            if (!isDown || connectorMode || isResizing || resizeMode || arrowMoveDrag.active) return;
 
             const dx = clientX - startX;
             const dy = clientY - startY;
@@ -649,7 +630,7 @@
         }
 
         node.addEventListener("mousedown", e => {
-            if (connectorMode || isResizing || resizeMode || arrowHandleDrag.active || arrowMoveDrag.active) return;
+            if (connectorMode || isResizing || resizeMode || arrowMoveDrag.active) return;
             startDrag(e.clientX, e.clientY);
         });
 
@@ -671,7 +652,7 @@
         });
 
         node.addEventListener("touchstart", e => {
-            if (connectorMode || resizeMode || arrowHandleDrag.active || arrowMoveDrag.active) {
+            if (connectorMode || resizeMode || arrowMoveDrag.active) {
                 hasMoved = false;
                 isDown = false;
                 return;
@@ -693,7 +674,7 @@
                 }
                 return;
             }
-            if (!isDown || connectorMode || resizeMode || arrowHandleDrag.active || arrowMoveDrag.active) return;
+            if (!isDown || connectorMode || resizeMode || arrowMoveDrag.active) return;
             if (e.touches.length > 0) {
                 const t = e.touches[0];
                 moveDrag(t.clientX, t.clientY);
@@ -856,7 +837,6 @@
             clearSelection();
             selectionType = "freeArrow";
             selectedFreeArrowIndex = foundFreeIndex;
-            updateArrowHandles();
             drawAll();
         } else if (foundConnIndex >= 0) {
             clearSelection();
@@ -902,33 +882,7 @@
         }
     });
 
-    // --- MODALITÀ FRECCIA: LUNGHEZZA E ROTAZIONE ---
-
-    arrowLengthModeBtn.addEventListener("click", () => {
-        arrowLengthMode = !arrowLengthMode;
-        if (arrowLengthMode) {
-            arrowLengthModeBtn.classList.add("active");
-            freeArrowMode = false;
-            freeArrowBtn.classList.remove("active");
-        } else {
-            arrowLengthModeBtn.classList.remove("active");
-        }
-        updateArrowHandles();
-    });
-
-    arrowRotateModeBtn.addEventListener("click", () => {
-        arrowRotateMode = !arrowRotateMode;
-        if (arrowRotateMode) {
-            arrowRotateModeBtn.classList.add("active");
-            freeArrowMode = false;
-            freeArrowBtn.classList.remove("active");
-        } else {
-            arrowRotateModeBtn.classList.remove("active");
-        }
-        updateArrowHandles();
-    });
-
-    // Rotazione “armonica” con bottoni + / - (5° per click)
+    // --- ROTAZIONE FRECCIA CON BOTTONI +/- (5°) ---
 
     function rotateSelectedArrowBy(deltaDegrees) {
         if (selectionType !== "freeArrow" || selectedFreeArrowIndex < 0) return;
@@ -958,7 +912,6 @@
         arrow.y2 = cy + ny2;
 
         drawAll();
-        updateArrowHandles();
     }
 
     arrowRotatePlusBtn.addEventListener("click", () => {
@@ -967,6 +920,44 @@
 
     arrowRotateMinusBtn.addEventListener("click", () => {
         rotateSelectedArrowBy(-5); // senso antiorario
+    });
+
+    // --- RIDIMENSIONAMENTO FRECCIA CON BOTTONI (Freccia - / Freccia +) ---
+
+    function scaleSelectedArrow(factor) {
+        if (selectionType !== "freeArrow" || selectedFreeArrowIndex < 0) return;
+
+        const arrow = freeArrows[selectedFreeArrowIndex];
+
+        const cx = (arrow.x1 + arrow.x2) / 2;
+        const cy = (arrow.y1 + arrow.y2) / 2;
+
+        const dx = arrow.x2 - arrow.x1;
+        const dy = arrow.y2 - arrow.y1;
+        const len = Math.hypot(dx, dy) || 1;
+
+        let newLen = len * factor;
+        const MIN_LEN = 20;
+        if (newLen < MIN_LEN) newLen = MIN_LEN;
+
+        const ux = dx / len;
+        const uy = dy / len;
+        const half = newLen / 2;
+
+        arrow.x1 = cx - ux * half;
+        arrow.y1 = cy - uy * half;
+        arrow.x2 = cx + ux * half;
+        arrow.y2 = cy + uy * half;
+
+        drawAll();
+    }
+
+    arrowLongerBtn.addEventListener("click", () => {
+        scaleSelectedArrow(1.1);
+    });
+
+    arrowShorterBtn.addEventListener("click", () => {
+        scaleSelectedArrow(0.9);
     });
 
     // --- CLICK SUI NODI ---
@@ -1053,230 +1044,11 @@
         }
     });
 
-    // --- MANIGLIE FRECCIA (LUNGHEZZA + ROTAZIONE) ---
-
-    function removeArrowHandles() {
-        const old = workspace.querySelectorAll(".arrow-handle");
-        old.forEach(el => el.remove());
-        arrowHandleDrag.active = false;
-        arrowHandleDrag.which = null;
-        arrowHandleDrag.arrowIndex = -1;
-    }
-
-    function updateArrowHandles() {
-        removeArrowHandles();
-        if (selectionType !== "freeArrow" || selectedFreeArrowIndex < 0) return;
-
-        const arrow = freeArrows[selectedFreeArrowIndex];
-        const workspaceRect = workspace.getBoundingClientRect();
-
-        const x1 = arrow.x1;
-        const y1 = arrow.y1;
-        const x2 = arrow.x2;
-        const y2 = arrow.y2;
-        const cx = (x1 + x2) / 2;
-        const cy = (y1 + y2) / 2;
-
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const len = Math.hypot(dx, dy) || 1;
-        const ux = dx / len;
-        const uy = dy / len;
-        const px = -uy;
-        const py = ux;
-
-        // maniglia lunghezza (sulla punta x2,y2)
-        if (arrowLengthMode) {
-            const hLen = document.createElement("div");
-            hLen.className = "arrow-handle";
-            hLen.style.left = (x2 + workspaceRect.left - 7) + "px";
-            hLen.style.top  = (y2 + workspaceRect.top - 7) + "px";
-            hLen.dataset.role = "length";
-            workspace.appendChild(hLen);
-
-            const startDragLength = (clientX, clientY) => {
-                arrowHandleDrag.active = true;
-                arrowHandleDrag.which = "length";
-                arrowHandleDrag.arrowIndex = selectedFreeArrowIndex;
-                moveArrowHandle(clientX, clientY);
-            };
-
-            hLen.addEventListener("mousedown", e => {
-                e.stopPropagation();
-                e.preventDefault();
-                startDragLength(e.clientX, e.clientY);
-            });
-            hLen.addEventListener("touchstart", e => {
-                e.stopPropagation();
-                e.preventDefault();
-                if (e.touches.length > 0) {
-                    const t = e.touches[0];
-                    startDragLength(t.clientX, t.clientY);
-                }
-            }, { passive: false });
-        }
-
-        // maniglia rotazione (vicino al centro, spostata di 25px)
-        if (arrowRotateMode) {
-            const offset = 25;
-            const rx = cx + px * offset;
-            const ry = cy + py * offset;
-
-            const hRot = document.createElement("div");
-            hRot.className = "arrow-handle";
-            hRot.style.left = (rx + workspaceRect.left - 7) + "px";
-            hRot.style.top  = (ry + workspaceRect.top - 7) + "px";
-            hRot.dataset.role = "rotate";
-            workspace.appendChild(hRot);
-
-            const startDragRotate = (clientX, clientY) => {
-                arrowHandleDrag.active = true;
-                arrowHandleDrag.which = "rotate";
-                arrowHandleDrag.arrowIndex = selectedFreeArrowIndex;
-                moveArrowHandle(clientX, clientY);
-            };
-
-            hRot.addEventListener("mousedown", e => {
-                e.stopPropagation();
-                e.preventDefault();
-                startDragRotate(e.clientX, e.clientY);
-            });
-            hRot.addEventListener("touchstart", e => {
-                e.stopPropagation();
-                e.preventDefault();
-                if (e.touches.length > 0) {
-                    const t = e.touches[0];
-                    startDragRotate(t.clientX, t.clientY);
-                }
-            }, { passive: false });
-        }
-    }
-
-    function moveArrowHandle(clientX, clientY) {
-        if (!arrowHandleDrag.active || arrowHandleDrag.arrowIndex < 0) return;
-
-        const arrow = freeArrows[arrowHandleDrag.arrowIndex];
-        const workspaceRect = workspace.getBoundingClientRect();
-        const x = clientX - workspaceRect.left;
-        const y = clientY - workspaceRect.top;
-
-        const x1 = arrow.x1;
-        const y1 = arrow.y1;
-        const x2 = arrow.x2;
-        const y2 = arrow.y2;
-
-        const cx = (x1 + x2) / 2;
-        const cy = (y1 + y2) / 2;
-
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const len = Math.hypot(dx, dy) || 1;
-        const ux = dx / len;
-        const uy = dy / len;
-
-        const minHalf = 10;
-
-        if (arrowHandleDrag.which === "length" && arrowLengthMode) {
-            const wx = x - cx;
-            const wy = y - cy;
-            let s = wx * ux + wy * uy;
-            if (s < minHalf) s = minHalf;
-            const half = s;
-            arrow.x1 = cx - ux * half;
-            arrow.y1 = cy - uy * half;
-            arrow.x2 = cx + ux * half;
-            arrow.y2 = cy + uy * half;
-        } else if (arrowHandleDrag.which === "rotate" && arrowRotateMode) {
-            const wx = x - cx;
-            const wy = y - cy;
-            const mag = Math.hypot(wx, wy);
-            if (mag > 1) {
-                const uxNew = wx / mag;
-                const uyNew = wy / mag;
-                const half = len / 2;
-                arrow.x1 = cx - uxNew * half;
-                arrow.y1 = cy - uyNew * half;
-                arrow.x2 = cx + uxNew * half;
-                arrow.y2 = cy + uyNew * half;
-            }
-        }
-
-        drawAll();
-        updateArrowHandles();
-    }
-
-    window.addEventListener("mousemove", e => {
-        if (arrowHandleDrag.active) {
-            e.preventDefault();
-            moveArrowHandle(e.clientX, e.clientY);
-        } else if (arrowMoveDrag.active) {
-            e.preventDefault();
-            moveWholeArrow(e.clientX, e.clientY);
-        } else if (isResizing && currentResizedNode) {
-            updateResize(e.clientX, e.clientY);
-            e.preventDefault();
-        }
-    });
-
-    window.addEventListener("mouseup", () => {
-        if (arrowHandleDrag.active) {
-            arrowHandleDrag.active = false;
-        }
-        if (arrowMoveDrag.active) {
-            arrowMoveDrag.active = false;
-        }
-        if (isResizing) {
-            endResize();
-        }
-    });
-
-    window.addEventListener("touchmove", e => {
-        if (arrowHandleDrag.active || arrowMoveDrag.active) {
-            if (e.touches.length > 0) {
-                const t = e.touches[0];
-                if (arrowHandleDrag.active) {
-                    moveArrowHandle(t.clientX, t.clientY);
-                } else if (arrowMoveDrag.active) {
-                    moveWholeArrow(t.clientX, t.clientY);
-                }
-                e.preventDefault();
-            }
-        } else if (isResizing && currentResizedNode && e.touches.length > 0) {
-            const t = e.touches[0];
-            updateResize(t.clientX, t.clientY);
-            e.preventDefault();
-        }
-    }, { passive: false });
-
-    window.addEventListener("touchend", () => {
-        if (arrowHandleDrag.active) {
-            arrowHandleDrag.active = false;
-        }
-        if (arrowMoveDrag.active) {
-            arrowMoveDrag.active = false;
-        }
-        if (isResizing) {
-            endResize();
-        }
-    });
-
-    window.addEventListener("touchcancel", () => {
-        if (arrowHandleDrag.active) {
-            arrowHandleDrag.active = false;
-        }
-        if (arrowMoveDrag.active) {
-            arrowMoveDrag.active = false;
-        }
-        if (isResizing) {
-            endResize();
-        }
-    });
-
     // --- DRAG FRECCIA INTERA (sul workspace, non sul canvas) ---
 
     workspace.addEventListener("mousedown", (e) => {
         if (selectionType !== "freeArrow" || selectedFreeArrowIndex < 0) return;
-        if (freeArrowMode || connectorMode || arrowHandleDrag.active || arrowLengthMode || arrowRotateMode) return;
+        if (freeArrowMode || connectorMode) return;
         if (e.target !== workspace && e.target !== canvas) return;
 
         const rect = workspace.getBoundingClientRect();
@@ -1297,7 +1069,7 @@
 
     workspace.addEventListener("touchstart", (e) => {
         if (selectionType !== "freeArrow" || selectedFreeArrowIndex < 0) return;
-        if (freeArrowMode || connectorMode || arrowHandleDrag.active || arrowLengthMode || arrowRotateMode) return;
+        if (freeArrowMode || connectorMode) return;
         if (e.touches.length === 0) return;
         if (e.target !== workspace && e.target !== canvas) return;
 
@@ -1337,8 +1109,58 @@
         arrow.y2 += dy;
 
         drawAll();
-        updateArrowHandles();
     }
+
+    window.addEventListener("mousemove", e => {
+        if (arrowMoveDrag.active) {
+            e.preventDefault();
+            moveWholeArrow(e.clientX, e.clientY);
+        } else if (isResizing && currentResizedNode) {
+            updateResize(e.clientX, e.clientY);
+            e.preventDefault();
+        }
+    });
+
+    window.addEventListener("mouseup", () => {
+        if (arrowMoveDrag.active) {
+            arrowMoveDrag.active = false;
+        }
+        if (isResizing) {
+            endResize();
+        }
+    });
+
+    window.addEventListener("touchmove", e => {
+        if (arrowMoveDrag.active) {
+            if (e.touches.length > 0) {
+                const t = e.touches[0];
+                moveWholeArrow(t.clientX, t.clientY);
+                e.preventDefault();
+            }
+        } else if (isResizing && currentResizedNode && e.touches.length > 0) {
+            const t = e.touches[0];
+            updateResize(t.clientX, t.clientY);
+            e.preventDefault();
+        }
+    }, { passive: false });
+
+    window.addEventListener("touchend", () => {
+        if (arrowMoveDrag.active) {
+            arrowMoveDrag.active = false;
+        }
+        if (isResizing) {
+            endResize();
+        }
+    });
+
+    window.addEventListener("touchcancel", () => {
+        if (arrowMoveDrag.active) {
+            arrowMoveDrag.active = false;
+        }
+        if (isResizing) {
+            endResize();
+        }
+    });
 
     // --- DISEGNO COMPLETO ---
 
@@ -1470,3 +1292,4 @@
 
 </body>
 </html>
+
