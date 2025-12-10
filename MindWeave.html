@@ -90,12 +90,15 @@
             touch-action: none;
         }
 
+        /* CANVAS: frecce sempre in primo piano (z-index alto) ma non cattura i click */
         #canvas {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
+            z-index: 5;
+            pointer-events: none;
         }
 
         .node {
@@ -116,6 +119,7 @@
             text-align: center;
             min-width: 60px;
             min-height: 40px;
+            z-index: 3; /* sotto le frecce */
         }
 
         .node img {
@@ -140,7 +144,7 @@
             border: 1px solid #333;
             background: #ffd54f;
             box-shadow: 0 0 0 1px #222;
-            z-index: 3;
+            z-index: 4; /* sopra il nodo, sotto le frecce */
             display: none;
         }
 
@@ -182,7 +186,7 @@
             border: 2px solid #000;
             background: #ffeb3b;
             box-shadow: 0 0 0 1px #222;
-            z-index: 5;
+            z-index: 6; /* sopra tutto */
         }
     </style>
 </head>
@@ -275,7 +279,7 @@
     let currentResizedNode = null;
     let resizeData = null;
 
-    // drag maniglie freccia (start: lunghezza, rotate: rotazione)
+    // drag maniglie freccia
     let arrowHandleDrag = {
         active: false,
         which: null,        // "length" | "rotate"
@@ -510,13 +514,11 @@
         selectedNode.style.width = newWidth + "px";
         selectedNode.style.height = newHeight + "px";
 
-        // font adattato alla nuova dimensione
         const currentFontSize = parseFloat(getComputedStyle(selectedNode).fontSize) || 16;
         let newFontSize = currentFontSize * factor;
         if (newFontSize < 8) newFontSize = 8;
         selectedNode.style.fontSize = newFontSize + "px";
 
-        // aggiorna rapporto d’aspetto
         selectedNode.dataset.aspectRatio = newWidth / newHeight;
 
         drawAll();
@@ -781,30 +783,103 @@
         }
     });
 
-    // due click nello spazio per creare freccia
+    // CLICK SUL WORKSPACE:
+    // - se freccia libera attiva → crea freccia
+    // - altrimenti → seleziona frecce / connessioni
     workspace.addEventListener("click", (e) => {
-        if (!freeArrowMode) return;
-        if (e.target !== workspace && e.target !== canvas) return;
+        const targetIsSpace = (e.target === workspace || e.target === canvas);
+
+        // CREA FRECCIA LIBERA
+        if (freeArrowMode) {
+            if (!targetIsSpace) return;
+
+            const rect = workspace.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            if (!freeArrowTempStart) {
+                freeArrowTempStart = { x, y };
+            } else {
+                const arrow = {
+                    x1: freeArrowTempStart.x,
+                    y1: freeArrowTempStart.y,
+                    x2: x,
+                    y2: y,
+                    color: currentArrowColor
+                };
+                freeArrows.push(arrow);
+                freeArrowTempStart = null;
+                drawAll();
+            }
+            return;
+        }
+
+        // SELEZIONE FRECCE/CONNESSIONI SOLO SE CLICK SU SPAZIO VUOTO
+        if (!targetIsSpace || connectorMode) return;
 
         const rect = workspace.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
 
-        if (!freeArrowTempStart) {
-            freeArrowTempStart = { x, y };
-        } else {
-            const arrow = {
-                x1: freeArrowTempStart.x,
-                y1: freeArrowTempStart.y,
-                x2: x,
-                y2: y,
-                color: currentArrowColor
-            };
-            freeArrows.push(arrow);
-            freeArrowTempStart = null;
+        let foundFreeIndex = -1;
+        let foundConnIndex = -1;
+        let minDistFree = Infinity;
+        let minDistConn = Infinity;
+
+        // frecce libere
+        freeArrows.forEach((arrow, index) => {
+            const dist = pointToSegmentDistance(x, y, arrow.x1, arrow.y1, arrow.x2, arrow.y2);
+            if (dist < 10 && dist < minDistFree) {
+                minDistFree = dist;
+                foundFreeIndex = index;
+            }
+        });
+
+        // connessioni tra nodi
+        connections.forEach((conn, index) => {
+            const fromNode = conn.from;
+            const toNode = conn.to;
+
+            const x1 = fromNode.offsetLeft + fromNode.offsetWidth / 2;
+            const y1 = fromNode.offsetTop + fromNode.offsetHeight / 2;
+            const x2 = toNode.offsetLeft + toNode.offsetWidth / 2;
+            const y2 = toNode.offsetTop + toNode.offsetHeight / 2;
+
+            const dist = pointToSegmentDistance(x, y, x1, y1, x2, y2);
+            if (dist < 10 && dist < minDistConn) {
+                minDistConn = dist;
+                foundConnIndex = index;
+            }
+        });
+
+        if (foundFreeIndex >= 0) {
+            clearSelection();
+            selectionType = "freeArrow";
+            selectedFreeArrowIndex = foundFreeIndex;
+            updateArrowHandles();
             drawAll();
+        } else if (foundConnIndex >= 0) {
+            clearSelection();
+            selectionType = "connection";
+            selectedConnectionIndex = foundConnIndex;
+            drawAll();
+        } else {
+            clearSelection();
         }
     });
+
+    function pointToSegmentDistance(px, py, x1, y1, x2, y2) {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        if (dx === 0 && dy === 0) {
+            return Math.hypot(px - x1, py - y1);
+        }
+        const t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy);
+        const clampedT = Math.max(0, Math.min(1, t));
+        const cx = x1 + clampedT * dx;
+        const cy = y1 + clampedT * dy;
+        return Math.hypot(px - cx, py - cy);
+    }
 
     // --- MODALITÀ RIDIMENSIONA NODI ---
 
@@ -833,7 +908,6 @@
         arrowLengthMode = !arrowLengthMode;
         if (arrowLengthMode) {
             arrowLengthModeBtn.classList.add("active");
-            // quando modifico freccia, non voglio creare nuove frecce
             freeArrowMode = false;
             freeArrowBtn.classList.remove("active");
         } else {
@@ -979,75 +1053,6 @@
         }
     });
 
-    // --- SELEZIONE FRECCE (nodi + libere) ---
-
-    canvas.addEventListener("click", (e) => {
-        if (connectorMode || freeArrowMode) return;
-
-        const rect = canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-
-        let foundFreeIndex = -1;
-        let foundConnIndex = -1;
-        let minDistFree = Infinity;
-        let minDistConn = Infinity;
-
-        // frecce libere
-        freeArrows.forEach((arrow, index) => {
-            const dist = pointToSegmentDistance(x, y, arrow.x1, arrow.y1, arrow.x2, arrow.y2);
-            if (dist < 10 && dist < minDistFree) {
-                minDistFree = dist;
-                foundFreeIndex = index;
-            }
-        });
-
-        // connessioni tra nodi
-        connections.forEach((conn, index) => {
-            const fromNode = conn.from;
-            const toNode = conn.to;
-
-            const x1 = fromNode.offsetLeft + fromNode.offsetWidth / 2;
-            const y1 = fromNode.offsetTop + fromNode.offsetHeight / 2;
-            const x2 = toNode.offsetLeft + toNode.offsetWidth / 2;
-            const y2 = toNode.offsetTop + toNode.offsetHeight / 2;
-
-            const dist = pointToSegmentDistance(x, y, x1, y1, x2, y2);
-            if (dist < 10 && dist < minDistConn) {
-                minDistConn = dist;
-                foundConnIndex = index;
-            }
-        });
-
-        if (foundFreeIndex >= 0) {
-            clearSelection();
-            selectionType = "freeArrow";
-            selectedFreeArrowIndex = foundFreeIndex;
-            updateArrowHandles();
-            drawAll();
-        } else if (foundConnIndex >= 0) {
-            clearSelection();
-            selectionType = "connection";
-            selectedConnectionIndex = foundConnIndex;
-            drawAll();
-        } else {
-            clearSelection();
-        }
-    });
-
-    function pointToSegmentDistance(px, py, x1, y1, x2, y2) {
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        if (dx === 0 && dy === 0) {
-            return Math.hypot(px - x1, py - y1);
-        }
-        const t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy);
-        const clampedT = Math.max(0, Math.min(1, t));
-        const cx = x1 + clampedT * dx;
-        const cy = y1 + clampedT * dy;
-        return Math.hypot(px - cx, py - cy);
-    }
-
     // --- MANIGLIE FRECCIA (LUNGHEZZA + ROTAZIONE) ---
 
     function removeArrowHandles() {
@@ -1172,10 +1177,9 @@
         const minHalf = 10;
 
         if (arrowHandleDrag.which === "length" && arrowLengthMode) {
-            // cambia solo la lunghezza, mantenendo l'angolo
             const wx = x - cx;
             const wy = y - cy;
-            let s = wx * ux + wy * uy; // proiezione sul verso della freccia
+            let s = wx * ux + wy * uy;
             if (s < minHalf) s = minHalf;
             const half = s;
             arrow.x1 = cx - ux * half;
@@ -1183,7 +1187,6 @@
             arrow.x2 = cx + ux * half;
             arrow.y2 = cy + uy * half;
         } else if (arrowHandleDrag.which === "rotate" && arrowRotateMode) {
-            // ruota attorno al centro mantenendo la lunghezza
             const wx = x - cx;
             const wy = y - cy;
             const mag = Math.hypot(wx, wy);
@@ -1209,6 +1212,9 @@
         } else if (arrowMoveDrag.active) {
             e.preventDefault();
             moveWholeArrow(e.clientX, e.clientY);
+        } else if (isResizing && currentResizedNode) {
+            updateResize(e.clientX, e.clientY);
+            e.preventDefault();
         }
     });
 
@@ -1218,6 +1224,9 @@
         }
         if (arrowMoveDrag.active) {
             arrowMoveDrag.active = false;
+        }
+        if (isResizing) {
+            endResize();
         }
     });
 
@@ -1232,6 +1241,10 @@
                 }
                 e.preventDefault();
             }
+        } else if (isResizing && currentResizedNode && e.touches.length > 0) {
+            const t = e.touches[0];
+            updateResize(t.clientX, t.clientY);
+            e.preventDefault();
         }
     }, { passive: false });
 
@@ -1242,6 +1255,9 @@
         if (arrowMoveDrag.active) {
             arrowMoveDrag.active = false;
         }
+        if (isResizing) {
+            endResize();
+        }
     });
 
     window.addEventListener("touchcancel", () => {
@@ -1251,15 +1267,19 @@
         if (arrowMoveDrag.active) {
             arrowMoveDrag.active = false;
         }
+        if (isResizing) {
+            endResize();
+        }
     });
 
-    // --- DRAG FRECCIA INTERA ---
+    // --- DRAG FRECCIA INTERA (sul workspace, non sul canvas) ---
 
-    canvas.addEventListener("mousedown", (e) => {
+    workspace.addEventListener("mousedown", (e) => {
         if (selectionType !== "freeArrow" || selectedFreeArrowIndex < 0) return;
         if (freeArrowMode || connectorMode || arrowHandleDrag.active || arrowLengthMode || arrowRotateMode) return;
+        if (e.target !== workspace && e.target !== canvas) return;
 
-        const rect = canvas.getBoundingClientRect();
+        const rect = workspace.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
 
@@ -1275,12 +1295,13 @@
         }
     });
 
-    canvas.addEventListener("touchstart", (e) => {
+    workspace.addEventListener("touchstart", (e) => {
         if (selectionType !== "freeArrow" || selectedFreeArrowIndex < 0) return;
         if (freeArrowMode || connectorMode || arrowHandleDrag.active || arrowLengthMode || arrowRotateMode) return;
         if (e.touches.length === 0) return;
+        if (e.target !== workspace && e.target !== canvas) return;
 
-        const rect = canvas.getBoundingClientRect();
+        const rect = workspace.getBoundingClientRect();
         const t = e.touches[0];
         const x = t.clientX - rect.left;
         const y = t.clientY - rect.top;
@@ -1300,7 +1321,7 @@
     function moveWholeArrow(clientX, clientY) {
         if (!arrowMoveDrag.active || arrowMoveDrag.arrowIndex < 0) return;
 
-        const rect = canvas.getBoundingClientRect();
+        const rect = workspace.getBoundingClientRect();
         const x = clientX - rect.left;
         const y = clientY - rect.top;
 
