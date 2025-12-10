@@ -102,26 +102,36 @@
             touch-action: none;
         }
 
-        .node {
-            position: absolute;
-            padding: 8px 14px;
-            background: white;
-            border: 2px solid #444;
-            border-radius: 6px;
-            cursor: move;
-            user-select: none;
-            -webkit-user-select: none;
-            touch-action: none;
-            font-size: 16px;
-            color: #000;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-            min-width: 60px;
-            min-height: 40px;
-            z-index: 3;
-        }
+.node {
+    position: absolute;
+    padding: 8px 14px;
+    background: white;
+    border: 2px solid #444;
+    border-radius: 6px;
+    cursor: move;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    font-size: 16px;
+    color: #000;
+    
+    /* layout interno */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+
+    /* evita che il testo esploda in orizzontale */
+    max-width: 260px;              /* puoi aumentare o ridurre a piacere */
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    flex-wrap: wrap;
+
+    min-width: 60px;
+    min-height: 40px;
+    z-index: 3;
+}
 
         .node img {
             width: 100%;
