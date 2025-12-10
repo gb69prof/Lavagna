@@ -131,15 +131,6 @@
             border-color: red;
         }
 
-        /* Nodo speciale: punto freccia (piccolo, rotondo) */
-        .anchor-node {
-            width: 20px;
-            height: 20px;
-            padding: 0;
-            border-radius: 50%;
-            background: #fffde7;
-        }
-
         /* Maniglie di ridimensionamento (visibili SOLO se è attivo il tasto Ridimensiona) */
         .resize-handle {
             position: absolute;
@@ -185,6 +176,18 @@
         .node.resizing {
             cursor: nwse-resize;
         }
+
+        /* Maniglie per le frecce libere */
+        .arrow-handle {
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 2px solid #000;
+            background: #ffeb3b;
+            box-shadow: 0 0 0 1px #222;
+            z-index: 5;
+        }
     </style>
 </head>
 <body>
@@ -196,8 +199,8 @@
     <input type="file" id="imgInput" accept="image/*">
     <button id="addImgBtn">Aggiungi immagine</button>
 
-    <button id="addAnchorBtn">Punto freccia</button>
-    <button id="connectorBtn">Connettore</button>
+    <button id="connectorBtn">Connettore nodi</button>
+    <button id="freeArrowBtn">Freccia</button>
     <button id="resizeModeBtn">Ridimensiona</button>
     <button id="deleteBtn">Cancella</button>
 
@@ -229,8 +232,8 @@
     const imgInput = document.getElementById("imgInput");
     const addTextBtn = document.getElementById("addTextBtn");
     const addImgBtn = document.getElementById("addImgBtn");
-    const addAnchorBtn = document.getElementById("addAnchorBtn");
     const connectorBtn = document.getElementById("connectorBtn");
+    const freeArrowBtn = document.getElementById("freeArrowBtn");
     const resizeModeBtn = document.getElementById("resizeModeBtn");
     const deleteBtn = document.getElementById("deleteBtn");
 
@@ -243,19 +246,31 @@
     const clearAllBtn = document.getElementById("clearAllBtn");
 
     const nodes = [];
-    let connections = []; // ogni connessione: { from, to, color }
+    let connections = [];   // frecce tra nodi: { from, to, color }
+    let freeArrows = [];    // frecce libere: { x1, y1, x2, y2, color }
 
-    let connectorMode = false;
-    let resizeMode = false;
+    let connectorMode = false;   // collega nodi
+    let freeArrowMode = false;   // crea frecce libere
+    let resizeMode = false;      // ridimensiona nodi
 
-    let selectedNode = null;             // per nodi (testo, immagine, punto freccia)
-    let selectionType = "none";          // "none" | "node" | "connection"
+    let freeArrowTempStart = null; // punto di partenza in modalità freccia libera
+
+    let selectedNode = null;
+    let selectionType = "none";  // "none" | "node" | "connection" | "freeArrow"
     let selectedConnectionIndex = -1;
+    let selectedFreeArrowIndex = -1;
 
-    // ridimensionamento
+    // ridimensionamento nodi
     let isResizing = false;
     let currentResizedNode = null;
     let resizeData = null;
+
+    // drag maniglie frecce libere
+    let arrowHandleDrag = {
+        active: false,
+        which: null,        // "start" | "end"
+        arrowIndex: -1
+    };
 
     // colori correnti
     let currentBorderColor = borderColorInput.value;
@@ -265,7 +280,7 @@
     function resizeCanvas() {
         canvas.width = workspace.clientWidth;
         canvas.height = workspace.clientHeight;
-        drawConnections();
+        drawAll();
     }
 
     window.addEventListener("resize", resizeCanvas);
@@ -284,11 +299,17 @@
         selectedConnectionIndex = -1;
     }
 
+    function clearFreeArrowSelection() {
+        selectedFreeArrowIndex = -1;
+        removeArrowHandles();
+    }
+
     function clearSelection() {
         selectionType = "none";
         clearNodeSelection();
         clearConnectionSelection();
-        drawConnections();
+        clearFreeArrowSelection();
+        drawAll();
     }
 
     function applyNodeStyle(node) {
@@ -298,7 +319,7 @@
         node.dataset.textColor = currentTextColor;
     }
 
-    // --- MANIGLIE DI RIDIMENSIONAMENTO ---
+    // --- MANIGLIE DI RIDIMENSIONAMENTO NODI ---
 
     function addResizeHandles(node) {
         const corners = ["nw", "ne", "se", "sw"];
@@ -328,8 +349,7 @@
     }
 
     function startResize(node, corner, clientX, clientY) {
-        if (connectorMode) return;
-        if (!resizeMode) return;
+        if (connectorMode || !resizeMode) return;
 
         clearSelection();
         selectedNode = node;
@@ -426,13 +446,13 @@
         currentResizedNode.style.width = newWidth + "px";
         currentResizedNode.style.height = newHeight + "px";
 
-        // SCALA IL FONT PER I NODI DI TESTO (gli anchor node non hanno testo, ma è innocuo)
+        // Scala il font per i nodi di testo (per le immagini è innocuo)
         const scaleFactor = newWidth / initialWidth;
         let newFontSize = initialFontSize * scaleFactor;
         if (newFontSize < 8) newFontSize = 8;
         currentResizedNode.style.fontSize = newFontSize + "px";
 
-        drawConnections();
+        drawAll();
     }
 
     function endResize() {
@@ -443,14 +463,13 @@
         }
         currentResizedNode = null;
         resizeData = null;
-        drawConnections();
+        drawAll();
     }
 
     // --- CREAZIONE NODI ---
 
     addTextBtn.addEventListener("click", addTextNode);
     addImgBtn.addEventListener("click", addImageNode);
-    addAnchorBtn.addEventListener("click", addAnchorNode);
 
     function addTextNode() {
         const text = textInput.value.trim();
@@ -511,34 +530,12 @@
         reader.readAsDataURL(file);
     }
 
-    // Punto freccia: piccolo nodo rotondo da mettere sopra l'immagine
-    function addAnchorNode() {
-        const node = document.createElement("div");
-        node.className = "node anchor-node";
-        node.innerText = ""; // niente testo
-
-        positionNode(node);
-        applyNodeStyle(node);
-        makeDraggable(node);
-
-        workspace.appendChild(node);
-        nodes.push(node);
-
-        requestAnimationFrame(() => {
-            const rect = node.getBoundingClientRect();
-            const ratio = rect.width / rect.height || 1;
-            node.dataset.aspectRatio = ratio;
-            addResizeHandles(node);
-        });
-    }
-
     function positionNode(node) {
         node.style.left = (100 + Math.random() * 300) + "px";
         node.style.top = (50 + Math.random() * 200) + "px";
     }
 
-    // --- DRAG & DROP NODI (MOUSE + TOUCH)
-    // disattivato se: connectorMode === true OPPURE resizeMode === true OPPURE sto ridimensionando
+    // --- DRAG NODI (MOUSE + TOUCH)
 
     function makeDraggable(node) {
         let offsetX = 0;
@@ -551,7 +548,7 @@
         const TAP_THRESHOLD = 5;
 
         function startDrag(clientX, clientY) {
-            if (connectorMode || isResizing || resizeMode) return;
+            if (connectorMode || isResizing || resizeMode || arrowHandleDrag.active) return;
             isDown = true;
             hasMoved = false;
             startX = clientX;
@@ -561,7 +558,7 @@
         }
 
         function moveDrag(clientX, clientY) {
-            if (!isDown || connectorMode || isResizing || resizeMode) return;
+            if (!isDown || connectorMode || isResizing || resizeMode || arrowHandleDrag.active) return;
 
             const dx = clientX - startX;
             const dy = clientY - startY;
@@ -573,7 +570,7 @@
             const newTop = clientY - offsetY;
             node.style.left = newLeft + "px";
             node.style.top = newTop + "px";
-            drawConnections();
+            drawAll();
         }
 
         function endDrag(clientX, clientY) {
@@ -587,7 +584,7 @@
 
         // mouse
         node.addEventListener("mousedown", e => {
-            if (connectorMode || isResizing || resizeMode) return;
+            if (connectorMode || isResizing || resizeMode || arrowHandleDrag.active) return;
             startDrag(e.clientX, e.clientY);
         });
 
@@ -610,7 +607,7 @@
 
         // touch (iPad)
         node.addEventListener("touchstart", e => {
-            if (connectorMode || resizeMode) {
+            if (connectorMode || resizeMode || arrowHandleDrag.active) {
                 hasMoved = false;
                 isDown = false;
                 return;
@@ -632,7 +629,7 @@
                 }
                 return;
             }
-            if (!isDown || connectorMode || resizeMode) return;
+            if (!isDown || connectorMode || resizeMode || arrowHandleDrag.active) return;
             if (e.touches.length > 0) {
                 const t = e.touches[0];
                 moveDrag(t.clientX, t.clientY);
@@ -680,18 +677,20 @@
         });
     }
 
-    // --- MODALITÀ CONNETTORE (TOGGLE) ---
+    // --- MODALITÀ CONNETTORE NODI ---
 
     connectorBtn.addEventListener("click", () => {
         connectorMode = !connectorMode;
 
         if (connectorMode) {
             connectorBtn.classList.add("active");
-            // se attivo il connettore, spengo il ridimensionamento
+            // spengo altre modalità
             resizeMode = false;
             resizeModeBtn.classList.remove("active");
             document.body.classList.remove("resize-mode-on");
-
+            freeArrowMode = false;
+            freeArrowBtn.classList.remove("active");
+            freeArrowTempStart = null;
             clearSelection();
         } else {
             connectorBtn.classList.remove("active");
@@ -702,7 +701,56 @@
         }
     });
 
-    // --- MODALITÀ RIDIMENSIONA (TOGGLE) ---
+    // --- MODALITÀ FRECCIA LIBERA ---
+
+    freeArrowBtn.addEventListener("click", () => {
+        freeArrowMode = !freeArrowMode;
+
+        if (freeArrowMode) {
+            freeArrowBtn.classList.add("active");
+            freeArrowTempStart = null;
+            // spengo altre modalità
+            connectorMode = false;
+            connectorBtn.classList.remove("active");
+            resizeMode = false;
+            resizeModeBtn.classList.remove("active");
+            document.body.classList.remove("resize-mode-on");
+            clearSelection();
+        } else {
+            freeArrowBtn.classList.remove("active");
+            freeArrowTempStart = null;
+        }
+    });
+
+    // click su workspace/canvas per disegnare frecce libere
+    workspace.addEventListener("click", (e) => {
+        // se clicco sopra un nodo o la toolbar, ignoro questo handler
+        if (e.target !== workspace && e.target !== canvas) return;
+        if (!freeArrowMode) return;
+
+        const rect = workspace.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        if (!freeArrowTempStart) {
+            // primo click: punto di partenza
+            freeArrowTempStart = { x, y };
+        } else {
+            // secondo click: crea freccia
+            const arrow = {
+                x1: freeArrowTempStart.x,
+                y1: freeArrowTempStart.y,
+                x2: x,
+                y2: y,
+                color: currentArrowColor
+            };
+            freeArrows.push(arrow);
+            freeArrowTempStart = null;
+            drawAll();
+        }
+    });
+
+    // --- MODALITÀ RIDIMENSIONA NODI ---
 
     resizeModeBtn.addEventListener("click", () => {
         resizeMode = !resizeMode;
@@ -711,9 +759,12 @@
             resizeModeBtn.classList.add("active");
             document.body.classList.add("resize-mode-on");
 
-            // se attivo il ridimensionamento, spengo il connettore
+            // spengo altre modalità
             connectorMode = false;
             connectorBtn.classList.remove("active");
+            freeArrowMode = false;
+            freeArrowBtn.classList.remove("active");
+            freeArrowTempStart = null;
         } else {
             resizeModeBtn.classList.remove("active");
             document.body.classList.remove("resize-mode-on");
@@ -721,8 +772,11 @@
         }
     });
 
+    // --- CLICK SUI NODI ---
+
     function handleNodeClick(node) {
         if (connectorMode) {
+            // collega nodi: primo click = from, secondo = to
             if (!selectedNode) {
                 selectedNode = node;
                 node.classList.add("selected");
@@ -738,7 +792,7 @@
                 selectedNode = null;
                 connectorMode = false;
                 connectorBtn.classList.remove("active");
-                drawConnections();
+                drawAll();
             }
             return;
         }
@@ -778,7 +832,7 @@
         currentArrowColor = arrowColorInput.value;
     });
 
-    // --- CANCELLA: elimina nodo o freccia selezionati ---
+    // --- CANCELLA: nodo, connessione tra nodi, freccia libera ---
 
     deleteBtn.addEventListener("click", () => {
         if (selectionType === "node" && selectedNode) {
@@ -791,25 +845,42 @@
             }
             selectedNode.remove();
             clearSelection();
-            drawConnections();
+            drawAll();
         } else if (selectionType === "connection" && selectedConnectionIndex >= 0) {
             connections.splice(selectedConnectionIndex, 1);
             clearSelection();
-            drawConnections();
+            drawAll();
+        } else if (selectionType === "freeArrow" && selectedFreeArrowIndex >= 0) {
+            freeArrows.splice(selectedFreeArrowIndex, 1);
+            clearSelection();
+            drawAll();
         }
     });
 
-    // --- SELEZIONE FRECCE CON CLICK SU CANVAS ---
+    // --- SELEZIONE FRECCE (nodi + libere) CON CLICK SU CANVAS ---
 
     canvas.addEventListener("click", (e) => {
-        if (connectorMode) return;
+        if (connectorMode || freeArrowMode) return;
 
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
 
-        let foundIndex = -1;
-        let minDist = Infinity;
+        let foundFreeIndex = -1;
+        let foundConnIndex = -1;
+        let minDistFree = Infinity;
+        let minDistConn = Infinity;
+
+        // prima controllo frecce libere
+        freeArrows.forEach((arrow, index) => {
+            const dist = pointToSegmentDistance(x, y, arrow.x1, arrow.y1, arrow.x2, arrow.y2);
+            if (dist < 10 && dist < minDistFree) {
+                minDistFree = dist;
+                foundFreeIndex = index;
+            }
+        });
+
+        // poi connessioni tra nodi
         connections.forEach((conn, index) => {
             const fromNode = conn.from;
             const toNode = conn.to;
@@ -820,17 +891,23 @@
             const y2 = toNode.offsetTop + toNode.offsetHeight / 2;
 
             const dist = pointToSegmentDistance(x, y, x1, y1, x2, y2);
-            if (dist < 10 && dist < minDist) {
-                minDist = dist;
-                foundIndex = index;
+            if (dist < 10 && dist < minDistConn) {
+                minDistConn = dist;
+                foundConnIndex = index;
             }
         });
 
-        if (foundIndex >= 0) {
+        if (foundFreeIndex >= 0) {
+            clearSelection();
+            selectionType = "freeArrow";
+            selectedFreeArrowIndex = foundFreeIndex;
+            updateArrowHandles();
+            drawAll();
+        } else if (foundConnIndex >= 0) {
             clearSelection();
             selectionType = "connection";
-            selectedConnectionIndex = foundIndex;
-            drawConnections();
+            selectedConnectionIndex = foundConnIndex;
+            drawAll();
         } else {
             clearSelection();
         }
@@ -849,11 +926,137 @@
         return Math.hypot(px - cx, py - cy);
     }
 
-    // --- DISEGNO DELLE FRECCE ---
+    // --- MANIGLIE PER FRECCE LIBERE ---
 
-    function drawConnections() {
+    function removeArrowHandles() {
+        const old = workspace.querySelectorAll(".arrow-handle");
+        old.forEach(el => el.remove());
+        arrowHandleDrag.active = false;
+        arrowHandleDrag.which = null;
+        arrowHandleDrag.arrowIndex = -1;
+    }
+
+    function updateArrowHandles() {
+        removeArrowHandles();
+        if (selectionType !== "freeArrow" || selectedFreeArrowIndex < 0) return;
+
+        const arrow = freeArrows[selectedFreeArrowIndex];
+        const workspaceRect = workspace.getBoundingClientRect();
+
+        // start handle
+        const hStart = document.createElement("div");
+        hStart.className = "arrow-handle";
+        hStart.style.left = (arrow.x1 + workspaceRect.left - 7) + "px";
+        hStart.style.top  = (arrow.y1 + workspaceRect.top - 7) + "px";
+        hStart.dataset.which = "start";
+        workspace.appendChild(hStart);
+
+        // end handle
+        const hEnd = document.createElement("div");
+        hEnd.className = "arrow-handle";
+        hEnd.style.left = (arrow.x2 + workspaceRect.left - 7) + "px";
+        hEnd.style.top  = (arrow.y2 + workspaceRect.top - 7) + "px";
+        hEnd.dataset.which = "end";
+        workspace.appendChild(hEnd);
+
+        const startDragHandle = (which, clientX, clientY) => {
+            arrowHandleDrag.active = true;
+            arrowHandleDrag.which = which;
+            arrowHandleDrag.arrowIndex = selectedFreeArrowIndex;
+            moveArrowHandle(clientX, clientY);
+        };
+
+        hStart.addEventListener("mousedown", e => {
+            e.stopPropagation();
+            e.preventDefault();
+            startDragHandle("start", e.clientX, e.clientY);
+        });
+        hEnd.addEventListener("mousedown", e => {
+            e.stopPropagation();
+            e.preventDefault();
+            startDragHandle("end", e.clientX, e.clientY);
+        });
+
+        hStart.addEventListener("touchstart", e => {
+            e.stopPropagation();
+            e.preventDefault();
+            if (e.touches.length > 0) {
+                const t = e.touches[0];
+                startDragHandle("start", t.clientX, t.clientY);
+            }
+        }, { passive: false });
+
+        hEnd.addEventListener("touchstart", e => {
+            e.stopPropagation();
+            e.preventDefault();
+            if (e.touches.length > 0) {
+                const t = e.touches[0];
+                startDragHandle("end", t.clientX, t.clientY);
+            }
+        }, { passive: false });
+    }
+
+    function moveArrowHandle(clientX, clientY) {
+        if (!arrowHandleDrag.active || arrowHandleDrag.arrowIndex < 0) return;
+
+        const arrow = freeArrows[arrowHandleDrag.arrowIndex];
+        const workspaceRect = workspace.getBoundingClientRect();
+        const x = clientX - workspaceRect.left;
+        const y = clientY - workspaceRect.top;
+
+        if (arrowHandleDrag.which === "start") {
+            arrow.x1 = x;
+            arrow.y1 = y;
+        } else if (arrowHandleDrag.which === "end") {
+            arrow.x2 = x;
+            arrow.y2 = y;
+        }
+
+        drawAll();
+        // aggiorno la posizione visuale delle maniglie
+        updateArrowHandles();
+    }
+
+    window.addEventListener("mousemove", e => {
+        if (arrowHandleDrag.active) {
+            e.preventDefault();
+            moveArrowHandle(e.clientX, e.clientY);
+        }
+    });
+
+    window.addEventListener("mouseup", () => {
+        if (arrowHandleDrag.active) {
+            arrowHandleDrag.active = false;
+        }
+    });
+
+    window.addEventListener("touchmove", e => {
+        if (!arrowHandleDrag.active) return;
+        if (e.touches.length > 0) {
+            const t = e.touches[0];
+            moveArrowHandle(t.clientX, t.clientY);
+            e.preventDefault();
+        }
+    }, { passive: false });
+
+    window.addEventListener("touchend", () => {
+        if (arrowHandleDrag.active) {
+            arrowHandleDrag.active = false;
+        }
+    });
+
+    window.addEventListener("touchcancel", () => {
+        if (arrowHandleDrag.active) {
+            arrowHandleDrag.active = false;
+        }
+    });
+
+    // --- DISEGNO DI TUTTO (connessioni + frecce libere) ---
+
+    function drawAll() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+        // connessioni tra nodi
         connections.forEach((conn, index) => {
             const fromNode = conn.from;
             const toNode = conn.to;
@@ -874,6 +1077,21 @@
             ctx.lineWidth = width;
 
             drawArrow(fromX, fromY, toX, toY);
+        });
+
+        // frecce libere
+        freeArrows.forEach((arrow, index) => {
+            const isSelected =
+                selectionType === "freeArrow" && selectedFreeArrowIndex === index;
+
+            const color = isSelected ? "#ff1744" : arrow.color;
+            const width = isSelected ? 3 : 2;
+
+            ctx.strokeStyle = color;
+            ctx.fillStyle = color;
+            ctx.lineWidth = width;
+
+            drawArrow(arrow.x1, arrow.y1, arrow.x2, arrow.y2);
         });
     }
 
@@ -955,6 +1173,7 @@
         nodes.forEach(node => node.remove());
         nodes.length = 0;
         connections = [];
+        freeArrows = [];
         clearSelection();
         ctx.clearRect(0, 0, canvas.width, canvas.height);
     });
