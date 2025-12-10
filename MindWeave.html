@@ -131,6 +131,15 @@
             border-color: red;
         }
 
+        /* Nodo speciale: punto freccia (piccolo, rotondo) */
+        .anchor-node {
+            width: 20px;
+            height: 20px;
+            padding: 0;
+            border-radius: 50%;
+            background: #fffde7;
+        }
+
         /* Maniglie di ridimensionamento (visibili SOLO se è attivo il tasto Ridimensiona) */
         .resize-handle {
             position: absolute;
@@ -187,6 +196,7 @@
     <input type="file" id="imgInput" accept="image/*">
     <button id="addImgBtn">Aggiungi immagine</button>
 
+    <button id="addAnchorBtn">Punto freccia</button>
     <button id="connectorBtn">Connettore</button>
     <button id="resizeModeBtn">Ridimensiona</button>
     <button id="deleteBtn">Cancella</button>
@@ -219,6 +229,7 @@
     const imgInput = document.getElementById("imgInput");
     const addTextBtn = document.getElementById("addTextBtn");
     const addImgBtn = document.getElementById("addImgBtn");
+    const addAnchorBtn = document.getElementById("addAnchorBtn");
     const connectorBtn = document.getElementById("connectorBtn");
     const resizeModeBtn = document.getElementById("resizeModeBtn");
     const deleteBtn = document.getElementById("deleteBtn");
@@ -237,7 +248,7 @@
     let connectorMode = false;
     let resizeMode = false;
 
-    let selectedNode = null;             // per nodi (testo o immagine)
+    let selectedNode = null;             // per nodi (testo, immagine, punto freccia)
     let selectionType = "none";          // "none" | "node" | "connection"
     let selectedConnectionIndex = -1;
 
@@ -337,7 +348,6 @@
             aspect = width / height || 1;
         }
 
-        // prendo il font-size attuale del nodo (serve anche per i successivi resize)
         const computedFontSize = parseFloat(getComputedStyle(node).fontSize) || 16;
 
         let oppositeX, oppositeY;
@@ -368,7 +378,7 @@
             oppositeX,
             oppositeY,
             aspect,
-            minSize: 40,
+            minSize: 20,
             initialWidth: width,
             initialFontSize: computedFontSize
         };
@@ -416,10 +426,10 @@
         currentResizedNode.style.width = newWidth + "px";
         currentResizedNode.style.height = newHeight + "px";
 
-        // SCALA IL FONT IN PROPORZIONE ALLA LARGHEZZA
+        // SCALA IL FONT PER I NODI DI TESTO (gli anchor node non hanno testo, ma è innocuo)
         const scaleFactor = newWidth / initialWidth;
         let newFontSize = initialFontSize * scaleFactor;
-        if (newFontSize < 8) newFontSize = 8; // non farlo diventare invisibile
+        if (newFontSize < 8) newFontSize = 8;
         currentResizedNode.style.fontSize = newFontSize + "px";
 
         drawConnections();
@@ -440,6 +450,7 @@
 
     addTextBtn.addEventListener("click", addTextNode);
     addImgBtn.addEventListener("click", addImageNode);
+    addAnchorBtn.addEventListener("click", addAnchorNode);
 
     function addTextNode() {
         const text = textInput.value.trim();
@@ -498,6 +509,27 @@
             }
         };
         reader.readAsDataURL(file);
+    }
+
+    // Punto freccia: piccolo nodo rotondo da mettere sopra l'immagine
+    function addAnchorNode() {
+        const node = document.createElement("div");
+        node.className = "node anchor-node";
+        node.innerText = ""; // niente testo
+
+        positionNode(node);
+        applyNodeStyle(node);
+        makeDraggable(node);
+
+        workspace.appendChild(node);
+        nodes.push(node);
+
+        requestAnimationFrame(() => {
+            const rect = node.getBoundingClientRect();
+            const ratio = rect.width / rect.height || 1;
+            node.dataset.aspectRatio = ratio;
+            addResizeHandles(node);
+        });
     }
 
     function positionNode(node) {
