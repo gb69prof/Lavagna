@@ -101,6 +101,7 @@
       top: 0;
       left: 0;
       z-index: 5;
+      pointer-events: none; /* gli eventi li gestisce il workspace */
     }
 
     .node {
@@ -113,6 +114,7 @@
       background: #fff;
       box-shadow: 0 2px 4px rgba(0,0,0,0.15);
       touch-action: none;
+      pointer-events: auto;
     }
 
     .node.selected {
@@ -136,7 +138,7 @@
       display: block;
       max-width: 100%;
       height: auto;
-      pointer-events: none;
+      pointer-events: none;  /* l’immagine non mangia i tocchi, li prende il nodo */
     }
 
     .resize-handle {
@@ -147,6 +149,7 @@
       background: #ff9800;
       border: 1px solid #333;
       z-index: 20;
+      pointer-events: auto;
     }
 
     .resize-handle.tl { top: -5px; left: -5px; }
@@ -235,6 +238,7 @@
     let connectorStartNodeId = null;
 
     let draggingNode = null;
+    let dragNodePointerId = null;
     let dragOffsetX = 0;
     let dragOffsetY = 0;
 
@@ -246,6 +250,7 @@
 
     let draggingFreeArrowId = null;
     let dragArrowStart = null; // {pointerX, pointerY, cx, cy}
+    let dragArrowPointerId = null;
 
     let currentArrowColor = document.getElementById('arrowColorPicker').value;
 
@@ -292,8 +297,7 @@
         contentEl.classList.add('node-content');
         contentEl.contentEditable = true;
         contentEl.textContent = content || 'Testo';
-        // default: va a capo
-        contentEl.style.whiteSpace = 'pre-wrap';
+        contentEl.style.whiteSpace = 'pre-wrap'; // default a capo
         nodeEl.appendChild(contentEl);
       } else if (type === 'image') {
         nodeEl.classList.add('image-node');
@@ -302,12 +306,8 @@
         nodeEl.appendChild(img);
       }
 
-      // z-index iniziale
       nodeZCounter++;
       nodeEl.style.zIndex = nodeZCounter;
-
-      // event handlers per il nodo
-      nodeEl.addEventListener('pointerdown', onNodePointerDown);
 
       workspace.appendChild(nodeEl);
 
@@ -394,7 +394,6 @@
       document.getElementById('connectorModeBtn').classList.toggle('active', mode === 'connector');
       document.getElementById('arrowModeBtn').classList.toggle('active', mode === 'arrow');
       document.getElementById('resizeModeBtn').classList.toggle('active', mode === 'resizeNode');
-      canvas.style.pointerEvents = (mode === 'arrow') ? 'auto' : 'none';
 
       let text = 'Modalità: normale';
       if (mode === 'connector') text = 'Modalità: connettore nodi';
@@ -406,76 +405,183 @@
     }
 
     // =========================
-    // Drag nodi
+    // Hit-test nodo topmost
     // =========================
-    function onNodePointerDown(e) {
-      const nodeEl = e.currentTarget;
-      const id = Number(nodeEl.dataset.id);
+    function getTopmostNodeAt(x, y) {
+      const wsRect = workspace.getBoundingClientRect();
+      let candidates = [];
 
-      // Se clicco dentro il testo, in modalità normale, lascio modificare il testo
-      if (e.target.closest('.node-content') && mode === 'normal') {
-        selectNode(id);
-        return;
-      }
+      nodes.forEach(n => {
+        const rect = n.el.getBoundingClientRect();
+        const left = rect.left - wsRect.left;
+        const top = rect.top - wsRect.top;
+        const right = left + rect.width;
+        const bottom = top + rect.height;
+        if (x >= left && x <= right && y >= top && y <= bottom) {
+          candidates.push(n);
+        }
+      });
 
-      e.preventDefault();
-      e.stopPropagation();
+      if (!candidates.length) return null;
 
-      if (mode === 'connector') {
-        handleConnectorClick(id);
-        return;
-      }
+      candidates.sort((a, b) => (a.z || 0) - (b.z || 0));
+      return candidates[candidates.length - 1]; // quello con z più alto
+    }
+
+    // =========================
+    // Workspace pointer handling (UNICO punto di ingresso)
+    // =========================
+    workspace.addEventListener('pointerdown', onWorkspacePointerDown);
+    workspace.addEventListener('pointermove', onWorkspacePointerMove);
+    workspace.addEventListener('pointerup', onWorkspacePointerUp);
+    workspace.addEventListener('pointercancel', onWorkspacePointerUp);
+
+    function onWorkspacePointerDown(e) {
+      const wsRect = workspace.getBoundingClientRect();
+      const x = e.clientX - wsRect.left;
+      const y = e.clientY - wsRect.top;
+
+      // Modalità freccia libera
       if (mode === 'arrow') {
-        // in modalità freccia, il canvas cattura gli eventi, non i nodi
+        e.preventDefault();
+
+        // 1) prova a selezionare freccia esistente
+        const hitArrow = findNearestArrow(x, y, 8);
+        if (hitArrow) {
+          selectFreeArrow(hitArrow.id);
+          draggingFreeArrowId = hitArrow.id;
+          dragArrowPointerId = e.pointerId;
+          dragArrowStart = { pointerX: x, pointerY: y, cx: hitArrow.cx, cy: hitArrow.cy };
+          return;
+        }
+
+        // 2) disegno freccia nuova (tap-tap)
+        if (!drawingArrowStart) {
+          drawingArrowStart = { x, y };
+        } else {
+          const dx = x - drawingArrowStart.x;
+          const dy = y - drawingArrowStart.y;
+          const length = Math.max(30, Math.sqrt(dx*dx + dy*dy));
+          const angle = Math.atan2(dy, dx);
+          const cx = (drawingArrowStart.x + x) / 2;
+          const cy = (drawingArrowStart.y + y) / 2;
+          canvasZCounter++;
+          const arrow = {
+            id: generateId(),
+            cx,
+            cy,
+            length,
+            angle,
+            color: currentArrowColor,
+            z: canvasZCounter
+          };
+          freeArrows.push(arrow);
+          drawingArrowStart = null;
+          selectFreeArrow(arrow.id);
+          redrawCanvas();
+        }
         return;
       }
 
-      selectNode(id);
+      // Modalità connettore nodi
+      if (mode === 'connector') {
+        e.preventDefault();
+        const node = getTopmostNodeAt(x, y);
+        if (node) {
+          handleConnectorClick(node.id);
+        }
+        return;
+      }
 
-      draggingNode = getNodeById(id);
-      const rect = nodeEl.getBoundingClientRect();
+      // Modalità ridimensiona: il drag è gestito dalle maniglie, non da qui
+      if (mode === 'resizeNode') {
+        // niente drag qui, solo eventuale selezione di nodo
+        const node = getTopmostNodeAt(x, y);
+        if (node) {
+          selectNode(node.id);
+        } else {
+          clearSelection();
+        }
+        return;
+      }
+
+      // Modalità normale: selezione e drag nodi, selezione frecce/connettori
+      if (mode === 'normal') {
+        const node = getTopmostNodeAt(x, y);
+
+        if (node) {
+          // Se è un nodo di testo e fai doppio click sulla parte di testo: entra in modifica
+          const targetContent = e.target.closest('.node-content');
+          if (node.type === 'text' && targetContent && e.detail === 2) {
+            // doppio click per edit
+            targetContent.focus();
+            return;
+          }
+
+          // altrimenti: drag del nodo
+          e.preventDefault();
+          selectNode(node.id);
+
+          draggingNode = node;
+          dragNodePointerId = e.pointerId;
+          const rect = node.el.getBoundingClientRect();
+          dragOffsetX = x - (rect.left - wsRect.left);
+          dragOffsetY = y - (rect.top - wsRect.top);
+          return;
+        }
+
+        // nessun nodo: prova frecce / connettori
+        const hit = findNearestConnectorOrArrow(x, y, 8);
+        if (hit && hit.type === 'connector') {
+          selectConnector(hit.obj.id);
+        } else if (hit && hit.type === 'arrow') {
+          selectFreeArrow(hit.obj.id);
+        } else {
+          clearSelection();
+        }
+      }
+    }
+
+    function onWorkspacePointerMove(e) {
       const wsRect = workspace.getBoundingClientRect();
-      const pointerX = e.clientX - wsRect.left;
-      const pointerY = e.clientY - wsRect.top;
+      const x = e.clientX - wsRect.left;
+      const y = e.clientY - wsRect.top;
 
-      dragOffsetX = pointerX - (rect.left - wsRect.left);
-      dragOffsetY = pointerY - (rect.top - wsRect.top);
+      // Drag nodo
+      if (mode === 'normal' && draggingNode && e.pointerId === dragNodePointerId) {
+        e.preventDefault();
+        const newX = x - dragOffsetX;
+        const newY = y - dragOffsetY;
+        draggingNode.x = newX;
+        draggingNode.y = newY;
+        draggingNode.el.style.left = newX + 'px';
+        draggingNode.el.style.top = newY + 'px';
+        redrawCanvas();
+      }
 
-      nodeEl.setPointerCapture(e.pointerId);
-      nodeEl.addEventListener('pointermove', onNodePointerMove);
-      nodeEl.addEventListener('pointerup', onNodePointerUp);
-      nodeEl.addEventListener('pointercancel', onNodePointerUp);
+      // Drag freccia libera
+      if (mode === 'arrow' && draggingFreeArrowId && e.pointerId === dragArrowPointerId) {
+        e.preventDefault();
+        const arrow = freeArrows.find(a => a.id === draggingFreeArrowId);
+        if (!arrow) return;
+        const dx = x - dragArrowStart.pointerX;
+        const dy = y - dragArrowStart.pointerY;
+        arrow.cx = dragArrowStart.cx + dx;
+        arrow.cy = dragArrowStart.cy + dy;
+        redrawCanvas();
+      }
     }
 
-    function onNodePointerMove(e) {
-      if (!draggingNode || mode !== 'normal') return;
-      e.preventDefault();
-
-      const wsRect = workspace.getBoundingClientRect();
-      const pointerX = e.clientX - wsRect.left;
-      const pointerY = e.clientY - wsRect.top;
-
-      const newX = pointerX - dragOffsetX;
-      const newY = pointerY - dragOffsetY;
-
-      draggingNode.x = newX;
-      draggingNode.y = newY;
-      draggingNode.el.style.left = newX + 'px';
-      draggingNode.el.style.top = newY + 'px';
-
-      redrawCanvas();
-    }
-
-    function onNodePointerUp(e) {
-      const nodeEl = e.currentTarget;
-      nodeEl.removeEventListener('pointermove', onNodePointerMove);
-      nodeEl.removeEventListener('pointerup', onNodePointerUp);
-      nodeEl.removeEventListener('pointercancel', onNodePointerUp);
-      draggingNode = null;
-    }
-
-    function getNodeById(id) {
-      return nodes.find(n => n.id === id) || null;
+    function onWorkspacePointerUp(e) {
+      if (draggingNode && e.pointerId === dragNodePointerId) {
+        draggingNode = null;
+        dragNodePointerId = null;
+      }
+      if (draggingFreeArrowId && e.pointerId === dragArrowPointerId) {
+        draggingFreeArrowId = null;
+        dragArrowPointerId = null;
+        dragArrowStart = null;
+      }
     }
 
     // =========================
@@ -507,92 +613,8 @@
     }
 
     // =========================
-    // Frecce libere
+    // Geometria frecce
     // =========================
-    function workspacePointerDown(e) {
-      e.preventDefault();
-      const wsRect = workspace.getBoundingClientRect();
-      const x = e.clientX - wsRect.left;
-      const y = e.clientY - wsRect.top;
-
-      if (mode === 'arrow') {
-        // 1) prova a selezionare freccia esistente
-        const hitArrow = findNearestArrow(x, y, 8);
-        if (hitArrow) {
-          selectFreeArrow(hitArrow.id);
-          draggingFreeArrowId = hitArrow.id;
-          dragArrowStart = { pointerX: x, pointerY: y, cx: hitArrow.cx, cy: hitArrow.cy };
-          canvas.setPointerCapture(e.pointerId);
-          canvas.addEventListener('pointermove', workspacePointerMoveArrowDrag);
-          canvas.addEventListener('pointerup', workspacePointerUpArrowDrag);
-          canvas.addEventListener('pointercancel', workspacePointerUpArrowDrag);
-          return;
-        }
-
-        // 2) disegno freccia nuova (tap-tap)
-        if (!drawingArrowStart) {
-          drawingArrowStart = { x, y };
-        } else {
-          const dx = x - drawingArrowStart.x;
-          const dy = y - drawingArrowStart.y;
-          const length = Math.max(30, Math.sqrt(dx*dx + dy*dy));
-          const angle = Math.atan2(dy, dx);
-          const cx = (drawingArrowStart.x + x) / 2;
-          const cy = (drawingArrowStart.y + y) / 2;
-          canvasZCounter++;
-          const arrow = {
-            id: generateId(),
-            cx,
-            cy,
-            length,
-            angle,
-            color: currentArrowColor,
-            z: canvasZCounter
-          };
-          freeArrows.push(arrow);
-          drawingArrowStart = null;
-          selectFreeArrow(arrow.id);
-          redrawCanvas();
-        }
-      } else if (mode === 'normal') {
-        // selezione connettori o frecce dalla canvas
-        const hit = findNearestConnectorOrArrow(x, y, 8);
-        if (hit && hit.type === 'connector') {
-          selectConnector(hit.obj.id);
-        } else if (hit && hit.type === 'arrow') {
-          selectFreeArrow(hit.obj.id);
-        } else {
-          clearSelection();
-        }
-      }
-    }
-
-    function workspacePointerMoveArrowDrag(e) {
-      if (!draggingFreeArrowId) return;
-      e.preventDefault();
-      const wsRect = workspace.getBoundingClientRect();
-      const x = e.clientX - wsRect.left;
-      const y = e.clientY - wsRect.top;
-
-      const arrow = freeArrows.find(a => a.id === draggingFreeArrowId);
-      if (!arrow) return;
-
-      const dx = x - dragArrowStart.pointerX;
-      const dy = y - dragArrowStart.pointerY;
-
-      arrow.cx = dragArrowStart.cx + dx;
-      arrow.cy = dragArrowStart.cy + dy;
-      redrawCanvas();
-    }
-
-    function workspacePointerUpArrowDrag(e) {
-      canvas.removeEventListener('pointermove', workspacePointerMoveArrowDrag);
-      canvas.removeEventListener('pointerup', workspacePointerUpArrowDrag);
-      canvas.removeEventListener('pointercancel', workspacePointerUpArrowDrag);
-      draggingFreeArrowId = null;
-      dragArrowStart = null;
-    }
-
     function distancePointToSegment(px, py, x1, y1, x2, y2) {
       const dx = x2 - x1;
       const dy = y2 - y1;
@@ -666,6 +688,10 @@
     // =========================
     // Calcolo centri nodi
     // =========================
+    function getNodeById(id) {
+      return nodes.find(n => n.id === id) || null;
+    }
+
     function getNodeCenter(node) {
       const rect = node.el.getBoundingClientRect();
       const wsRect = workspace.getBoundingClientRect();
@@ -679,7 +705,6 @@
     // Ridimensionamento nodi
     // =========================
     function updateResizeHandles() {
-      // rimuovi eventuali handle esistenti
       document.querySelectorAll('.resize-handle').forEach(h => h.remove());
 
       if (mode !== 'resizeNode' || !selectedNodeId) return;
@@ -720,71 +745,94 @@
 
       resizeStart = { pointerX, pointerY, left, top, width, height, aspect };
 
-      handle.setPointerCapture(e.pointerId);
-      handle.addEventListener('pointermove', onResizeHandleMove);
-      handle.addEventListener('pointerup', onResizeHandleUp);
-      handle.addEventListener('pointercancel', onResizeHandleUp);
+      workspace.setPointerCapture(e.pointerId);
+      // useremo onWorkspacePointerMove / Up per aggiornare, ma memorizziamo che stiamo ridimensionando
     }
 
-    function onResizeHandleMove(e) {
-      if (!resizingNode || !resizeStart) return;
-      e.preventDefault();
+    // Adattiamo onWorkspacePointerMove / Up per gestire anche il resize
+    const _oldWorkspacePointerMove = onWorkspacePointerMove;
+    const _oldWorkspacePointerUp = onWorkspacePointerUp;
+
+    // (ridefiniamo per includere il resize mantenendo il resto)
+    workspace.removeEventListener('pointermove', onWorkspacePointerMove);
+    workspace.removeEventListener('pointerup', onWorkspacePointerUp);
+    workspace.removeEventListener('pointercancel', onWorkspacePointerUp);
+
+    workspace.addEventListener('pointermove', function(e) {
       const wsRect = workspace.getBoundingClientRect();
-      const pointerX = e.clientX - wsRect.left;
-      const pointerY = e.clientY - wsRect.top;
-      let dx = pointerX - resizeStart.pointerX;
-      let dy = pointerY - resizeStart.pointerY;
+      const x = e.clientX - wsRect.left;
+      const y = e.clientY - wsRect.top;
 
-      let newLeft = resizeStart.left;
-      let newTop = resizeStart.top;
-      let newWidth = resizeStart.width;
-      let newHeight = resizeStart.height;
+      // Resize attivo?
+      if (resizingNode && resizeStart) {
+        e.preventDefault();
+        let dx = x - resizeStart.pointerX;
+        let dy = y - resizeStart.pointerY;
 
-      if (resizeCorner === 'br') {
-        newWidth = resizeStart.width + dx;
-        newHeight = resizeStart.height + dy;
-      } else if (resizeCorner === 'bl') {
-        newWidth = resizeStart.width - dx;
-        newHeight = resizeStart.height + dy;
-        newLeft = resizeStart.left + dx;
-      } else if (resizeCorner === 'tr') {
-        newWidth = resizeStart.width + dx;
-        newHeight = resizeStart.height - dy;
-        newTop = resizeStart.top + dy;
-      } else if (resizeCorner === 'tl') {
-        newWidth = resizeStart.width - dx;
-        newHeight = resizeStart.height - dy;
-        newLeft = resizeStart.left + dx;
-        newTop = resizeStart.top + dy;
+        let newLeft = resizeStart.left;
+        let newTop = resizeStart.top;
+        let newWidth = resizeStart.width;
+        let newHeight = resizeStart.height;
+
+        if (resizeCorner === 'br') {
+          newWidth = resizeStart.width + dx;
+          newHeight = resizeStart.height + dy;
+        } else if (resizeCorner === 'bl') {
+          newWidth = resizeStart.width - dx;
+          newHeight = resizeStart.height + dy;
+          newLeft = resizeStart.left + dx;
+        } else if (resizeCorner === 'tr') {
+          newWidth = resizeStart.width + dx;
+          newHeight = resizeStart.height - dy;
+          newTop = resizeStart.top + dy;
+        } else if (resizeCorner === 'tl') {
+          newWidth = resizeStart.width - dx;
+          newHeight = resizeStart.height - dy;
+          newLeft = resizeStart.left + dx;
+          newTop = resizeStart.top + dy;
+        }
+
+        newWidth = Math.max(60, newWidth);
+        newHeight = Math.max(40, newHeight);
+
+        if (resizingNode.type === 'image') {
+          newHeight = newWidth * resizeStart.aspect;
+        }
+
+        resizingNode.el.style.left = newLeft + 'px';
+        resizingNode.el.style.top = newTop + 'px';
+        resizingNode.el.style.width = newWidth + 'px';
+        resizingNode.el.style.height = newHeight + 'px';
+
+        resizingNode.x = newLeft;
+        resizingNode.y = newTop;
+
+        redrawCanvas();
+        return;
       }
 
-      newWidth = Math.max(60, newWidth);
-      newHeight = Math.max(40, newHeight);
+      // altrimenti, comportati come prima
+      _oldWorkspacePointerMove(e);
+    });
 
-      if (resizingNode.type === 'image') {
-        // mantieni proporzioni per immagini
-        newHeight = newWidth * resizeStart.aspect;
+    workspace.addEventListener('pointerup', function(e) {
+      if (resizingNode) {
+        resizingNode = null;
+        resizeCorner = null;
+        resizeStart = null;
+        workspace.releasePointerCapture(e.pointerId);
       }
+      _oldWorkspacePointerUp(e);
+    });
 
-      resizingNode.el.style.left = newLeft + 'px';
-      resizingNode.el.style.top = newTop + 'px';
-      resizingNode.el.style.width = newWidth + 'px';
-      resizingNode.el.style.height = newHeight + 'px';
-
-      resizingNode.x = newLeft;
-      resizingNode.y = newTop;
-
-      redrawCanvas();
-    }
-
-    function onResizeHandleUp(e) {
-      e.currentTarget.removeEventListener('pointermove', onResizeHandleMove);
-      e.currentTarget.removeEventListener('pointerup', onResizeHandleUp);
-      e.currentTarget.removeEventListener('pointercancel', onResizeHandleUp);
-      resizingNode = null;
-      resizeCorner = null;
-      resizeStart = null;
-    }
+    workspace.addEventListener('pointercancel', function(e) {
+      if (resizingNode) {
+        resizingNode = null;
+        resizeCorner = null;
+        resizeStart = null;
+      }
+      _oldWorkspacePointerUp(e);
+    });
 
     // Nodo + / Nodo - (nodo + font per testi)
     function scaleSelectedNode(factor) {
@@ -812,7 +860,6 @@
       node.x = newLeft;
       node.y = newTop;
 
-      // se è nodo di testo, scala anche il font
       if (node.type === 'text') {
         const contentEl = node.el.querySelector('.node-content');
         if (contentEl) {
@@ -847,7 +894,6 @@
 
     function applyArrowColor(color) {
       currentArrowColor = color;
-      // se c'è una freccia / connettore selezionato, cambia colore
       if (selectedConnectorId) {
         const conn = connectors.find(c => c.id === selectedConnectorId);
         if (conn) conn.color = color;
@@ -859,7 +905,6 @@
       redrawCanvas();
     }
 
-    // Toggle testo a capo / no capo per il nodo selezionato (solo testo)
     function toggleWrapSelectedText() {
       if (!selectedNodeId) return;
       const node = getNodeById(selectedNodeId);
@@ -868,9 +913,9 @@
       if (!contentEl) return;
       const current = contentEl.style.whiteSpace || window.getComputedStyle(contentEl).whiteSpace;
       if (current === 'nowrap') {
-        contentEl.style.whiteSpace = 'pre-wrap';  // torna a capo
+        contentEl.style.whiteSpace = 'pre-wrap';
       } else {
-        contentEl.style.whiteSpace = 'nowrap';    // tutto su una riga
+        contentEl.style.whiteSpace = 'nowrap';
       }
     }
 
@@ -941,12 +986,9 @@
     // =========================
     function deleteSelected() {
       if (selectedNodeId) {
-        // cancella nodo + connettori collegati
         const nodeId = selectedNodeId;
         const node = getNodeById(nodeId);
-        if (node) {
-          node.el.remove();
-        }
+        if (node) node.el.remove();
         nodes = nodes.filter(n => n.id !== nodeId);
         connectors = connectors.filter(c => c.fromId !== nodeId && c.toId !== nodeId);
       } else if (selectedConnectorId) {
@@ -985,7 +1027,6 @@
       ctx.lineTo(x2, y2);
       ctx.stroke();
 
-      // punta
       ctx.beginPath();
       ctx.moveTo(x2, y2);
       ctx.lineTo(
@@ -1013,16 +1054,11 @@
     function redrawCanvas() {
       ctx.clearRect(0,0,canvas.width, canvas.height);
 
-      // unisci connettori + frecce libere in un'unica lista ordinata per z
       const items = [];
       connectors.forEach(c => items.push({type: 'connector', obj: c}));
       freeArrows.forEach(a => items.push({type: 'arrow', obj: a}));
 
-      items.sort((a, b) => {
-        const za = (a.obj.z || 0);
-        const zb = (b.obj.z || 0);
-        return za - zb;
-      });
+      items.sort((a, b) => (a.obj.z || 0) - (b.obj.z || 0));
 
       items.forEach(item => {
         if (item.type === 'connector') {
@@ -1064,10 +1100,9 @@
     }
 
     // =========================
-    // Event listeners toolbar
+    // Toolbar
     // =========================
     document.getElementById('addTextBtn').addEventListener('click', addTextNode);
-
     document.getElementById('toggleWrapBtn').addEventListener('click', toggleWrapSelectedText);
 
     document.getElementById('addImageBtn').addEventListener('click', () => {
@@ -1145,16 +1180,6 @@
 
     document.getElementById('bringToFrontBtn').addEventListener('click', bringToFront);
     document.getElementById('sendToBackBtn').addEventListener('click', sendToBack);
-
-    // Canvas eventi
-    canvas.addEventListener('pointerdown', workspacePointerDown);
-
-    // Click vuoto sul workspace (per deselezionare, in modalità normale)
-    workspace.addEventListener('pointerdown', (e) => {
-      if (e.target === workspace && mode === 'normal') {
-        clearSelection();
-      }
-    });
 
     // Init
     setMode('normal');
