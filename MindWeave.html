@@ -2,9 +2,9 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8" />
-  <title>MindWeave – Lavagna concettuale</title>
+  <title>MindWeave – Lavagna concettuale (Fixed)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- Librerie per esportazione -->
+  
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 
@@ -34,11 +34,13 @@
       gap: 8px;
       flex-wrap: wrap;
       align-items: center;
+      z-index: 20000; /* Header sempre sopra tutto */
     }
 
     header .group-label {
       font-weight: 600;
       margin-right: 4px;
+      color: #ccc;
     }
 
     button.tool-btn {
@@ -51,15 +53,14 @@
       cursor: pointer;
     }
 
+    button.tool-btn:hover {
+      background: #444;
+    }
+
     button.tool-btn.active {
       background: #ff9800;
       border-color: #ff9800;
       color: #000;
-    }
-
-    button.tool-btn:disabled {
-      opacity: 0.5;
-      cursor: default;
     }
 
     input[type="color"] {
@@ -69,6 +70,7 @@
       width: 30px;
       height: 24px;
       background: transparent;
+      cursor: pointer;
     }
 
     input[type="text"],
@@ -78,12 +80,15 @@
       border-radius: 4px;
       border: 1px solid #999;
       background: #fff;
+      color: #000;
     }
 
     #workspace-wrapper {
       flex: 1;
       padding: 6px;
       display: flex;
+      position: relative;
+      overflow: hidden;
     }
 
     #workspace {
@@ -96,12 +101,16 @@
       touch-action: none;
     }
 
+    /* FIX LAYER: Il canvas ora è SOPRA i nodi (z-index alto), 
+       ma lascia passare i click (pointer-events: none) 
+       a meno che il mouse non sia su una freccia (gestito via JS).
+    */
     #connectorCanvas {
       position: absolute;
       top: 0;
       left: 0;
-      z-index: 5;
-      pointer-events: none; /* gli eventi li gestisce il workspace */
+      z-index: 10000; 
+      pointer-events: none; 
     }
 
     .node {
@@ -112,50 +121,76 @@
       border-radius: 6px;
       border: 2px solid #666;
       background: #fff;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
       touch-action: none;
-      pointer-events: auto;
+      /* Cursore di default per spostare */
+      cursor: grab;
+    }
+
+    .node:active {
+      cursor: grabbing;
     }
 
     .node.selected {
       border-color: red;
+      box-shadow: 0 0 0 2px rgba(255, 0, 0, 0.3);
+    }
+
+    .node.text-node {
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     .node.text-node .node-content {
       width: 100%;
-      min-height: 28px;
+      min-height: 20px;
       outline: none;
       font-size: 14px;
-      white-space: pre-wrap;       /* default: va a capo */
+      white-space: pre-wrap;
       word-wrap: break-word;
-      text-align: center;          /* testo centrato nel riquadro */
+      text-align: center;
+      /* Importante: il testo non seleziona nativamente finché non si edita */
+      pointer-events: none; 
+    }
+
+    /* Quando siamo in modalità edit (contenteditable=true) */
+    .node.text-node.editing .node-content {
+      pointer-events: auto;
       cursor: text;
-      -webkit-user-select: text;   /* riabilita selezione testo */
+      -webkit-user-select: text;
       user-select: text;
+      background: rgba(255, 255, 0, 0.1); /* Leggero feedback visivo */
+    }
+    
+    .node.text-node.editing {
+      cursor: text;
+      border-style: dashed;
     }
 
     .node.image-node img {
       display: block;
-      max-width: 100%;
-      height: auto;
-      pointer-events: none;  /* l’immagine non mangia i tocchi, li prende il nodo */
+      width: 100%;
+      height: 100%;
+      object-fit: fill; /* Adatta l'immagine al resize */
+      pointer-events: none;
     }
 
+    /* Maniglie di ridimensionamento */
     .resize-handle {
       position: absolute;
-      width: 10px;
-      height: 10px;
+      width: 12px;
+      height: 12px;
       border-radius: 50%;
       background: #ff9800;
       border: 1px solid #333;
-      z-index: 20;
-      pointer-events: auto;
+      z-index: 10001; /* Sopra al canvas */
+      cursor: pointer;
     }
-
-    .resize-handle.tl { top: -5px; left: -5px; }
-    .resize-handle.tr { top: -5px; right: -5px; }
-    .resize-handle.bl { bottom: -5px; left: -5px; }
-    .resize-handle.br { bottom: -5px; right: -5px; }
+    .resize-handle.tl { top: -6px; left: -6px; cursor: nwse-resize; }
+    .resize-handle.tr { top: -6px; right: -6px; cursor: nesw-resize; }
+    .resize-handle.bl { bottom: -6px; left: -6px; cursor: nesw-resize; }
+    .resize-handle.br { bottom: -6px; right: -6px; cursor: nwse-resize; }
 
     #status-bar {
       font-size: 12px;
@@ -169,41 +204,38 @@
 <body>
   <header>
     <span class="group-label">Testo:</span>
-    <input type="text" id="textInput" placeholder="Scrivi testo nodo" />
-    <button class="tool-btn" id="addTextBtn">🅣+</button>
-    <button class="tool-btn" id="toggleWrapBtn" title="Testo a capo ON/OFF">↔ testo</button>
-
+    <input type="text" id="textInput" placeholder="Nuovo testo..." />
+    <button class="tool-btn" id="addTextBtn">🅣 Aggiungi</button>
+    
     <span class="group-label">Immagine:</span>
     <input type="file" id="imageInput" accept="image/*" />
-    <button class="tool-btn" id="addImageBtn">🖼+</button>
+    <button class="tool-btn" id="addImageBtn">🖼 Aggiungi</button>
 
     <span class="group-label">Nodo:</span>
-    <button class="tool-btn" id="resizeModeBtn">🔳 Resize</button>
-    <button class="tool-btn" id="nodePlusBtn">□+</button>
-    <button class="tool-btn" id="nodeMinusBtn">□−</button>
-
-    <span class="group-label">Connettori:</span>
-    <button class="tool-btn" id="connectorModeBtn">□→□</button>
-
-    <span class="group-label">Frecce:</span>
-    <button class="tool-btn" id="arrowModeBtn">➜</button>
-    <button class="tool-btn" id="arrowLengthPlusBtn">↔+</button>
-    <button class="tool-btn" id="arrowLengthMinusBtn">↔−</button>
-    <button class="tool-btn" id="arrowRotateLeftBtn">🔄−</button>
-    <button class="tool-btn" id="arrowRotateRightBtn">🔄+</button>
-
-    <span class="group-label">Colori:</span>
-    <label title="Bordo nodo">🖼</label><input type="color" id="borderColorPicker" value="#666666" />
-    <label title="Testo nodo">A</label><input type="color" id="textColorPicker" value="#000000" />
-    <label title="Freccia">→</label><input type="color" id="arrowColorPicker" value="#0000ff" />
-
-    <span class="group-label">Livello:</span>
+    <button class="tool-btn" id="resizeModeBtn" title="Ridimensiona manualmente">🔳 Resize</button>
+    <button class="tool-btn" id="nodePlusBtn" title="Ingrandisci">+10%</button>
+    <button class="tool-btn" id="nodeMinusBtn" title="Rimpicciolisci">-10%</button>
     <button class="tool-btn" id="bringToFrontBtn" title="Porta in primo piano">⬆ Primo</button>
     <button class="tool-btn" id="sendToBackBtn" title="Manda dietro">⬇ Dietro</button>
 
-    <span class="group-label">Azioni:</span>
-    <button class="tool-btn" id="deleteSelectedBtn">🗑 Cancella</button>
-    <button class="tool-btn" id="clearAllBtn">🧹 Tutto</button>
+    <span class="group-label">Connessioni:</span>
+    <button class="tool-btn" id="connectorModeBtn" title="Collega due nodi">□→□ Link</button>
+    <button class="tool-btn" id="arrowModeBtn" title="Disegna freccia libera">➜ Freccia</button>
+
+    <span class="group-label">Modifica Freccia:</span>
+    <button class="tool-btn" id="arrowLengthPlusBtn">↔+</button>
+    <button class="tool-btn" id="arrowLengthMinusBtn">↔−</button>
+    <button class="tool-btn" id="arrowRotateLeftBtn">🔄sx</button>
+    <button class="tool-btn" id="arrowRotateRightBtn">🔄dx</button>
+
+    <span class="group-label">Stile:</span>
+    <label title="Bordo Nodo">🖼</label><input type="color" id="borderColorPicker" value="#666666" />
+    <label title="Testo">A</label><input type="color" id="textColorPicker" value="#000000" />
+    <label title="Freccia">➜</label><input type="color" id="arrowColorPicker" value="#0000ff" />
+
+    <span class="group-label">Gestione:</span>
+    <button class="tool-btn" id="deleteSelectedBtn" style="background:#500;">🗑 Elimina</button>
+    <button class="tool-btn" id="clearAllBtn">🧹 Pulisci</button>
     <button class="tool-btn" id="savePngBtn">📸 PNG</button>
     <button class="tool-btn" id="savePdfBtn">📄 PDF</button>
   </header>
@@ -211,251 +243,318 @@
   <div id="workspace-wrapper">
     <div id="workspace">
       <canvas id="connectorCanvas"></canvas>
-      <!-- Nodi creati dinamicamente -->
-    </div>
+      </div>
   </div>
 
-  <div id="status-bar">Modalità: normale</div>
+  <div id="status-bar">Modalità: Normale (Doppio click sul testo per modificare)</div>
 
   <script>
     // =========================
-    // Stato globale
+    // Configurazione e Stato
     // =========================
     const workspace = document.getElementById('workspace');
     const canvas = document.getElementById('connectorCanvas');
     const ctx = canvas.getContext('2d');
+    const statusBar = document.getElementById('status-bar');
 
     let mode = 'normal'; // 'normal', 'connector', 'arrow', 'resizeNode'
+    
+    // Liste dati
     let nodes = [];       // {id, el, type, x, y, z}
     let connectors = [];  // {id, fromId, toId, color, z}
     let freeArrows = [];  // {id, cx, cy, length, angle, color, z}
+    
     let nextId = 1;
+    let nodeZCounter = 10; // Z-index per i div dei nodi
 
+    // Selezione
     let selectedNodeId = null;
     let selectedConnectorId = null;
     let selectedFreeArrowId = null;
 
-    let connectorStartNodeId = null;
-
+    // Dragging / Interazione
     let draggingNode = null;
-    let dragNodePointerId = null;
     let dragOffsetX = 0;
     let dragOffsetY = 0;
 
+    let connectorStartNodeId = null; // Primo nodo per collegamento
+    
+    // Resize nodo manuale
     let resizingNode = null;
     let resizeCorner = null;
-    let resizeStart = null; // {x,y,width,height,left,top,aspect}
+    let resizeStart = null;
 
-    let drawingArrowStart = null; // {x,y}
-
+    // Disegno/Drag Frecce
+    let drawingArrowStart = null;
     let draggingFreeArrowId = null;
-    let dragArrowStart = null; // {pointerX, pointerY, cx, cy}
-    let dragArrowPointerId = null;
+    let dragArrowStart = null;
 
     let currentArrowColor = document.getElementById('arrowColorPicker').value;
 
-    const statusBar = document.getElementById('status-bar');
+    // =========================
+    // Inizializzazione Canvas
+    // =========================
+    function generateId() { return nextId++; }
 
-    // z-index per nodi (HTML) e per oggetti sul canvas (frecce + connettori)
-    let nodeZCounter = 10;
-    let canvasZCounter = 1;
-
-    // =========================
-    // Utility ID
-    // =========================
-    function generateId() {
-      return nextId++;
-    }
-
-    // =========================
-    // Canvas resize
-    // =========================
     function resizeCanvas() {
       const rect = workspace.getBoundingClientRect();
       canvas.width = rect.width;
       canvas.height = rect.height;
       redrawCanvas();
     }
-
     window.addEventListener('resize', resizeCanvas);
     window.addEventListener('load', resizeCanvas);
 
     // =========================
-    // Creazione nodi
+    // Creazione Nodi
     // =========================
     function createNodeElement(type, x, y, content) {
       const nodeEl = document.createElement('div');
       nodeEl.classList.add('node');
       const id = generateId();
       nodeEl.dataset.id = id;
+      
+      // Posizione
       nodeEl.style.left = x + 'px';
       nodeEl.style.top = y + 'px';
+      
+      // Z-Index incrementale (sempre sopra al precedente)
+      nodeZCounter++;
+      nodeEl.style.zIndex = nodeZCounter;
 
       if (type === 'text') {
         nodeEl.classList.add('text-node');
         const contentEl = document.createElement('div');
         contentEl.classList.add('node-content');
-        contentEl.contentEditable = true;
-        contentEl.textContent = content || 'Testo';
-        contentEl.style.whiteSpace = 'pre-wrap'; // default a capo
+        contentEl.innerText = content || 'Testo';
+        
+        // FIX: Inizialmente NON editabile per permettere il drag
+        contentEl.contentEditable = "false"; 
+
         nodeEl.appendChild(contentEl);
+
+        // Gestione Doppio Click per editare testo
+        nodeEl.addEventListener('dblclick', (e) => {
+          if (mode !== 'normal') return;
+          e.stopPropagation(); // Evita conflitti
+          
+          contentEl.contentEditable = "true";
+          nodeEl.classList.add('editing');
+          contentEl.focus();
+          
+          // Seleziona tutto il testo per comodità
+          const range = document.createRange();
+          range.selectNodeContents(contentEl);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        });
+
+        // Quando perde il focus, torna non editabile
+        contentEl.addEventListener('blur', () => {
+          contentEl.contentEditable = "false";
+          nodeEl.classList.remove('editing');
+          window.getSelection().removeAllRanges();
+        });
+
       } else if (type === 'image') {
         nodeEl.classList.add('image-node');
         const img = document.createElement('img');
         img.src = content;
+        img.onload = () => redrawCanvas(); // Ridisegna se serve
         nodeEl.appendChild(img);
+        
+        // Dimensioni di default per immagini grandi
+        nodeEl.style.width = "200px";
+        nodeEl.style.height = "auto";
       }
 
-      nodeZCounter++;
-      nodeEl.style.zIndex = nodeZCounter;
+      // Listener per il Drag/Selezione
+      nodeEl.addEventListener('pointerdown', onNodePointerDown);
 
       workspace.appendChild(nodeEl);
 
-      const nodeObj = {
-        id,
-        el: nodeEl,
-        type,
-        x,
-        y,
-        z: nodeZCounter
-      };
+      const nodeObj = { id, el: nodeEl, type, x, y, z: nodeZCounter };
       nodes.push(nodeObj);
 
-      selectNode(nodeObj.id);
-      updateResizeHandles();
+      selectNode(id);
       redrawCanvas();
     }
 
     function addTextNode() {
       const input = document.getElementById('textInput');
-      const text = input.value.trim() || 'Testo';
-      createNodeElement('text', 50, 50, text);
+      const text = input.value.trim() || 'Doppio click qui';
+      // Posiziona al centro o random
+      createNodeElement('text', 100, 100, text);
       input.value = '';
     }
 
     function addImageNode(file) {
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = function(e) {
-        const src = e.target.result;
-        createNodeElement('image', 80, 80, src);
+      reader.onload = (e) => {
+        createNodeElement('image', 150, 150, e.target.result);
       };
       reader.readAsDataURL(file);
     }
 
     // =========================
-    // Selezione
+    // Selezione Unica
     // =========================
     function clearSelection() {
       selectedNodeId = null;
       selectedConnectorId = null;
       selectedFreeArrowId = null;
       connectorStartNodeId = null;
+
       nodes.forEach(n => n.el.classList.remove('selected'));
       updateResizeHandles();
       redrawCanvas();
     }
 
     function selectNode(id) {
+      clearSelection(); // Deseleziona frecce/altri nodi
       selectedNodeId = id;
-      selectedConnectorId = null;
-      selectedFreeArrowId = null;
-      nodes.forEach(n => {
-        if (n.id === id) n.el.classList.add('selected');
-        else n.el.classList.remove('selected');
-      });
+      const node = getNodeById(id);
+      if (node) node.el.classList.add('selected');
       updateResizeHandles();
       redrawCanvas();
     }
 
     function selectConnector(id) {
+      clearSelection();
       selectedConnectorId = id;
-      selectedFreeArrowId = null;
-      selectedNodeId = null;
-      nodes.forEach(n => n.el.classList.remove('selected'));
-      updateResizeHandles();
       redrawCanvas();
     }
 
     function selectFreeArrow(id) {
+      clearSelection();
       selectedFreeArrowId = id;
-      selectedConnectorId = null;
-      selectedNodeId = null;
-      nodes.forEach(n => n.el.classList.remove('selected'));
-      updateResizeHandles();
       redrawCanvas();
     }
 
     // =========================
-    // Modalità / UI
+    // Gestione Eventi Nodi (Drag & Drop)
     // =========================
-    function setMode(newMode) {
-      mode = newMode;
-      document.getElementById('connectorModeBtn').classList.toggle('active', mode === 'connector');
-      document.getElementById('arrowModeBtn').classList.toggle('active', mode === 'arrow');
-      document.getElementById('resizeModeBtn').classList.toggle('active', mode === 'resizeNode');
+    function onNodePointerDown(e) {
+      const nodeEl = e.currentTarget;
+      const id = Number(nodeEl.dataset.id);
 
-      let text = 'Modalità: normale';
-      if (mode === 'connector') text = 'Modalità: connettore nodi';
-      if (mode === 'arrow') text = 'Modalità: freccia libera';
-      if (mode === 'resizeNode') text = 'Modalità: ridimensiona nodo';
-      statusBar.textContent = text;
+      // Se stiamo editando il testo, non interferire col click
+      if (nodeEl.classList.contains('editing')) {
+        return; 
+      }
 
-      updateResizeHandles();
-    }
+      e.preventDefault(); 
+      e.stopPropagation(); // Ferma l'evento qui, non va al workspace
 
-    // =========================
-    // Hit-test nodo topmost
-    // =========================
-    function getTopmostNodeAt(x, y) {
+      // Modalità Connettore
+      if (mode === 'connector') {
+        handleConnectorClick(id);
+        return;
+      }
+      // Modalità Resize
+      if (mode === 'resizeNode') {
+        selectNode(id);
+        return;
+      }
+
+      // Modalità Normale: Seleziona e Prepara Drag
+      selectNode(id);
+      draggingNode = getNodeById(id);
+      
+      const rect = nodeEl.getBoundingClientRect();
       const wsRect = workspace.getBoundingClientRect();
-      let candidates = [];
+      
+      dragOffsetX = e.clientX - rect.left;
+      dragOffsetY = e.clientY - rect.top;
 
-      nodes.forEach(n => {
-        const rect = n.el.getBoundingClientRect();
-        const left = rect.left - wsRect.left;
-        const top = rect.top - wsRect.top;
-        const right = left + rect.width;
-        const bottom = top + rect.height;
-        if (x >= left && x <= right && y >= top && y <= bottom) {
-          candidates.push(n);
-        }
-      });
-
-      if (!candidates.length) return null;
-
-      candidates.sort((a, b) => (a.z || 0) - (b.z || 0));
-      return candidates[candidates.length - 1]; // quello con z più alto
+      nodeEl.setPointerCapture(e.pointerId);
+      nodeEl.addEventListener('pointermove', onNodePointerMove);
+      nodeEl.addEventListener('pointerup', onNodePointerUp);
+      nodeEl.addEventListener('pointercancel', onNodePointerUp);
     }
 
-    // =========================
-    // Workspace pointer handling (UNICO punto di ingresso)
-    // =========================
-    workspace.addEventListener('pointerdown', onWorkspacePointerDown);
-    workspace.addEventListener('pointermove', onWorkspacePointerMove);
-    workspace.addEventListener('pointerup', onWorkspacePointerUp);
-    workspace.addEventListener('pointercancel', onWorkspacePointerUp);
+    function onNodePointerMove(e) {
+      if (!draggingNode) return;
+      e.preventDefault();
+      
+      const wsRect = workspace.getBoundingClientRect();
+      let newX = e.clientX - wsRect.left - dragOffsetX;
+      let newY = e.clientY - wsRect.top - dragOffsetY;
 
-    function onWorkspacePointerDown(e) {
+      draggingNode.x = newX;
+      draggingNode.y = newY;
+      draggingNode.el.style.left = newX + 'px';
+      draggingNode.el.style.top = newY + 'px';
+
+      // Ridisegna frecce collegate mentre sposti
+      redrawCanvas();
+    }
+
+    function onNodePointerUp(e) {
+      const nodeEl = e.currentTarget;
+      nodeEl.removeEventListener('pointermove', onNodePointerMove);
+      nodeEl.removeEventListener('pointerup', onNodePointerUp);
+      nodeEl.removeEventListener('pointercancel', onNodePointerUp);
+      draggingNode = null;
+    }
+
+    function getNodeById(id) { return nodes.find(n => n.id === id); }
+
+    // =========================
+    // Gestione Eventi Workspace (Frecce & Click Vuoto)
+    // =========================
+    
+    // SMART HOVER: Rende il canvas cliccabile solo se sopra una freccia
+    workspace.addEventListener('pointermove', (e) => {
+      if (draggingNode || resizingNode || draggingFreeArrowId) return; // Se stiamo trascinando, ignora
+
       const wsRect = workspace.getBoundingClientRect();
       const x = e.clientX - wsRect.left;
       const y = e.clientY - wsRect.top;
 
-      // Modalità freccia libera
-      if (mode === 'arrow') {
-        e.preventDefault();
+      // Cerca se c'è qualcosa sotto il mouse sul canvas
+      const hit = findNearestConnectorOrArrow(x, y, 10);
+      
+      if (hit) {
+        // C'è una freccia sotto il mouse: attiva il canvas per ricevere il click
+        canvas.style.pointerEvents = 'auto';
+        canvas.style.cursor = 'pointer';
+      } else {
+        // Nessuna freccia: lascia passare il click agli elementi sotto (es. immagini)
+        canvas.style.pointerEvents = 'none';
+        canvas.style.cursor = 'default';
+        
+        // Se siamo in modalità creazione freccia, il canvas deve prendere i click
+        if (mode === 'arrow') {
+           canvas.style.pointerEvents = 'auto';
+           canvas.style.cursor = 'crosshair';
+        }
+      }
+    });
 
-        // 1) prova a selezionare freccia esistente
-        const hitArrow = findNearestArrow(x, y, 8);
+    canvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const wsRect = workspace.getBoundingClientRect();
+      const x = e.clientX - wsRect.left;
+      const y = e.clientY - wsRect.top;
+
+      // 1. Gestione Creazione/Selezione Frecce Libere
+      if (mode === 'arrow') {
+        const hitArrow = findNearestArrow(x, y, 10);
         if (hitArrow) {
+          // Se clicco su una esistente, la sposto
           selectFreeArrow(hitArrow.id);
           draggingFreeArrowId = hitArrow.id;
-          dragArrowPointerId = e.pointerId;
           dragArrowStart = { pointerX: x, pointerY: y, cx: hitArrow.cx, cy: hitArrow.cy };
+          canvas.setPointerCapture(e.pointerId);
+          canvas.addEventListener('pointermove', onArrowDragMove);
+          canvas.addEventListener('pointerup', onArrowDragUp);
           return;
         }
 
-        // 2) disegno freccia nuova (tap-tap)
+        // Creazione nuova freccia (tap-tap logic)
         if (!drawingArrowStart) {
           drawingArrowStart = { x, y };
         } else {
@@ -465,162 +564,76 @@
           const angle = Math.atan2(dy, dx);
           const cx = (drawingArrowStart.x + x) / 2;
           const cy = (drawingArrowStart.y + y) / 2;
-          canvasZCounter++;
+          
           const arrow = {
             id: generateId(),
-            cx,
-            cy,
-            length,
-            angle,
-            color: currentArrowColor,
-            z: canvasZCounter
+            cx, cy, length, angle,
+            color: currentArrowColor
           };
           freeArrows.push(arrow);
           drawingArrowStart = null;
           selectFreeArrow(arrow.id);
           redrawCanvas();
         }
-        return;
-      }
-
-      // Modalità connettore nodi
-      if (mode === 'connector') {
-        e.preventDefault();
-        const node = getTopmostNodeAt(x, y);
-        if (node) {
-          handleConnectorClick(node.id);
-        }
-        return;
-      }
-
-      // Modalità ridimensiona: il drag è gestito dalle maniglie, non da qui
-      if (mode === 'resizeNode') {
-        // niente drag qui, solo eventuale selezione di nodo
-        const node = getTopmostNodeAt(x, y);
-        if (node) {
-          selectNode(node.id);
-        } else {
-          clearSelection();
-        }
-        return;
-      }
-
-      // Modalità normale: selezione e drag nodi, selezione frecce/connettori
-      if (mode === 'normal') {
-        const node = getTopmostNodeAt(x, y);
-
-        if (node) {
-          // Se è un nodo di testo e fai doppio click sulla parte di testo: entra in modifica
-          const targetContent = e.target.closest('.node-content');
-          if (node.type === 'text' && targetContent && e.detail === 2) {
-            // doppio click per edit
-            targetContent.focus();
-            return;
-          }
-
-          // altrimenti: drag del nodo
-          e.preventDefault();
-          selectNode(node.id);
-
-          draggingNode = node;
-          dragNodePointerId = e.pointerId;
-          const rect = node.el.getBoundingClientRect();
-          dragOffsetX = x - (rect.left - wsRect.left);
-          dragOffsetY = y - (rect.top - wsRect.top);
-          return;
-        }
-
-        // nessun nodo: prova frecce / connettori
-        const hit = findNearestConnectorOrArrow(x, y, 8);
+      } 
+      // 2. Modalità Normale: Selezione Connettori/Frecce
+      else if (mode === 'normal') {
+        const hit = findNearestConnectorOrArrow(x, y, 10);
         if (hit && hit.type === 'connector') {
           selectConnector(hit.obj.id);
         } else if (hit && hit.type === 'arrow') {
           selectFreeArrow(hit.obj.id);
+          // Permetti drag immediato anche qui
+          draggingFreeArrowId = hit.obj.id;
+          dragArrowStart = { pointerX: x, pointerY: y, cx: hit.obj.cx, cy: hit.obj.cy };
+          canvas.setPointerCapture(e.pointerId);
+          canvas.addEventListener('pointermove', onArrowDragMove);
+          canvas.addEventListener('pointerup', onArrowDragUp);
         } else {
           clearSelection();
         }
       }
-    }
+    });
 
-    function onWorkspacePointerMove(e) {
+    // Drag Frecce
+    function onArrowDragMove(e) {
+      if (!draggingFreeArrowId) return;
+      e.preventDefault();
       const wsRect = workspace.getBoundingClientRect();
       const x = e.clientX - wsRect.left;
       const y = e.clientY - wsRect.top;
+      
+      const arrow = freeArrows.find(a => a.id === draggingFreeArrowId);
+      if (!arrow) return;
 
-      // Drag nodo
-      if (mode === 'normal' && draggingNode && e.pointerId === dragNodePointerId) {
-        e.preventDefault();
-        const newX = x - dragOffsetX;
-        const newY = y - dragOffsetY;
-        draggingNode.x = newX;
-        draggingNode.y = newY;
-        draggingNode.el.style.left = newX + 'px';
-        draggingNode.el.style.top = newY + 'px';
-        redrawCanvas();
-      }
-
-      // Drag freccia libera
-      if (mode === 'arrow' && draggingFreeArrowId && e.pointerId === dragArrowPointerId) {
-        e.preventDefault();
-        const arrow = freeArrows.find(a => a.id === draggingFreeArrowId);
-        if (!arrow) return;
-        const dx = x - dragArrowStart.pointerX;
-        const dy = y - dragArrowStart.pointerY;
-        arrow.cx = dragArrowStart.cx + dx;
-        arrow.cy = dragArrowStart.cy + dy;
-        redrawCanvas();
-      }
-    }
-
-    function onWorkspacePointerUp(e) {
-      if (draggingNode && e.pointerId === dragNodePointerId) {
-        draggingNode = null;
-        dragNodePointerId = null;
-      }
-      if (draggingFreeArrowId && e.pointerId === dragArrowPointerId) {
-        draggingFreeArrowId = null;
-        dragArrowPointerId = null;
-        dragArrowStart = null;
-      }
-    }
-
-    // =========================
-    // Connettori nodi
-    // =========================
-    function handleConnectorClick(nodeId) {
-      if (connectorStartNodeId == null) {
-        connectorStartNodeId = nodeId;
-        selectNode(nodeId);
-      } else {
-        const fromId = connectorStartNodeId;
-        const toId = nodeId;
-        if (fromId !== toId) {
-          canvasZCounter++;
-          const conn = {
-            id: generateId(),
-            fromId,
-            toId,
-            color: currentArrowColor,
-            z: canvasZCounter
-          };
-          connectors.push(conn);
-        }
-        connectorStartNodeId = null;
-        setMode('normal'); // one-shot
-        clearSelection();
-      }
+      const dx = x - dragArrowStart.pointerX;
+      const dy = y - dragArrowStart.pointerY;
+      arrow.cx = dragArrowStart.cx + dx;
+      arrow.cy = dragArrowStart.cy + dy;
       redrawCanvas();
     }
 
+    function onArrowDragUp(e) {
+      canvas.removeEventListener('pointermove', onArrowDragMove);
+      canvas.removeEventListener('pointerup', onArrowDragUp);
+      draggingFreeArrowId = null;
+    }
+
+    // Click vuoto sul wrapper per deselezionare tutto
+    workspace.addEventListener('pointerdown', (e) => {
+      // Se ho cliccato proprio il div workspace (sfondo) e non un nodo o il canvas
+      if (e.target === workspace && mode === 'normal') {
+        clearSelection();
+      }
+    });
+
     // =========================
-    // Geometria frecce
+    // Geometria e Calcoli
     // =========================
     function distancePointToSegment(px, py, x1, y1, x2, y2) {
       const dx = x2 - x1;
       const dy = y2 - y1;
-      if (dx === 0 && dy === 0) {
-        return Math.hypot(px - x1, py - y1);
-      }
+      if (dx === 0 && dy === 0) return Math.hypot(px - x1, py - y1);
       const t = ((px - x1) * dx + (py - y1) * dy) / (dx*dx + dy*dy);
       const clamped = Math.max(0, Math.min(1, t));
       const projX = x1 + clamped * dx;
@@ -632,12 +645,7 @@
       const half = arrow.length / 2;
       const dx = Math.cos(arrow.angle) * half;
       const dy = Math.sin(arrow.angle) * half;
-      return {
-        x1: arrow.cx - dx,
-        y1: arrow.cy - dy,
-        x2: arrow.cx + dx,
-        y2: arrow.cy + dy
-      };
+      return { x1: arrow.cx - dx, y1: arrow.cy - dy, x2: arrow.cx + dx, y2: arrow.cy + dy };
     }
 
     function findNearestArrow(x, y, threshold) {
@@ -658,7 +666,7 @@
       let best = null;
       let bestDist = Infinity;
 
-      // connettori
+      // Connettori
       connectors.forEach(c => {
         const fromNode = getNodeById(c.fromId);
         const toNode = getNodeById(c.toId);
@@ -672,7 +680,7 @@
         }
       });
 
-      // frecce libere
+      // Frecce libere
       freeArrows.forEach(a => {
         const {x1,y1,x2,y2} = getArrowEndpoints(a);
         const d = distancePointToSegment(x,y,x1,y1,x2,y2);
@@ -681,18 +689,12 @@
           best = {type: 'arrow', obj: a};
         }
       });
-
       return best;
     }
 
-    // =========================
-    // Calcolo centri nodi
-    // =========================
-    function getNodeById(id) {
-      return nodes.find(n => n.id === id) || null;
-    }
-
     function getNodeCenter(node) {
+      // Usiamo le coordinate salvate o il DOM
+      // (Meglio DOM live per size corretto)
       const rect = node.el.getBoundingClientRect();
       const wsRect = workspace.getBoundingClientRect();
       return {
@@ -701,12 +703,31 @@
       };
     }
 
+    function handleConnectorClick(nodeId) {
+      if (connectorStartNodeId == null) {
+        connectorStartNodeId = nodeId;
+        selectNode(nodeId);
+      } else {
+        const fromId = connectorStartNodeId;
+        const toId = nodeId;
+        if (fromId !== toId) {
+          connectors.push({
+            id: generateId(),
+            fromId, toId,
+            color: currentArrowColor
+          });
+        }
+        connectorStartNodeId = null;
+        setMode('normal');
+      }
+      redrawCanvas();
+    }
+
     // =========================
-    // Ridimensionamento nodi
+    // Resize Manuale Nodi
     // =========================
     function updateResizeHandles() {
       document.querySelectorAll('.resize-handle').forEach(h => h.remove());
-
       if (mode !== 'resizeNode' || !selectedNodeId) return;
 
       const node = getNodeById(selectedNodeId);
@@ -722,243 +743,141 @@
     }
 
     function onResizeHandleDown(e) {
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault(); e.stopPropagation();
       const handle = e.currentTarget;
       const corner = handle.dataset.corner;
       const node = getNodeById(selectedNodeId);
-      if (!node) return;
-
+      
       resizingNode = node;
       resizeCorner = corner;
 
       const rect = node.el.getBoundingClientRect();
       const wsRect = workspace.getBoundingClientRect();
-      const left = rect.left - wsRect.left;
-      const top = rect.top - wsRect.top;
-      const width = rect.width;
-      const height = rect.height;
-      const aspect = height / width;
+      
+      resizeStart = {
+        pointerX: e.clientX - wsRect.left,
+        pointerY: e.clientY - wsRect.top,
+        left: rect.left - wsRect.left,
+        top: rect.top - wsRect.top,
+        width: rect.width,
+        height: rect.height,
+        aspect: rect.height / rect.width
+      };
 
-      const pointerX = e.clientX - wsRect.left;
-      const pointerY = e.clientY - wsRect.top;
-
-      resizeStart = { pointerX, pointerY, left, top, width, height, aspect };
-
-      workspace.setPointerCapture(e.pointerId);
-      // useremo onWorkspacePointerMove / Up per aggiornare, ma memorizziamo che stiamo ridimensionando
+      handle.setPointerCapture(e.pointerId);
+      handle.addEventListener('pointermove', onResizeHandleMove);
+      handle.addEventListener('pointerup', onResizeHandleUp);
     }
 
-    // Adattiamo onWorkspacePointerMove / Up per gestire anche il resize
-    const _oldWorkspacePointerMove = onWorkspacePointerMove;
-    const _oldWorkspacePointerUp = onWorkspacePointerUp;
-
-    // (ridefiniamo per includere il resize mantenendo il resto)
-    workspace.removeEventListener('pointermove', onWorkspacePointerMove);
-    workspace.removeEventListener('pointerup', onWorkspacePointerUp);
-    workspace.removeEventListener('pointercancel', onWorkspacePointerUp);
-
-    workspace.addEventListener('pointermove', function(e) {
+    function onResizeHandleMove(e) {
+      if (!resizingNode || !resizeStart) return;
+      e.preventDefault();
       const wsRect = workspace.getBoundingClientRect();
-      const x = e.clientX - wsRect.left;
-      const y = e.clientY - wsRect.top;
+      const px = e.clientX - wsRect.left;
+      const py = e.clientY - wsRect.top;
+      
+      let dx = px - resizeStart.pointerX;
+      let dy = py - resizeStart.pointerY;
 
-      // Resize attivo?
-      if (resizingNode && resizeStart) {
-        e.preventDefault();
-        let dx = x - resizeStart.pointerX;
-        let dy = y - resizeStart.pointerY;
+      let newLeft = resizeStart.left;
+      let newTop = resizeStart.top;
+      let newW = resizeStart.width;
+      let newH = resizeStart.height;
 
-        let newLeft = resizeStart.left;
-        let newTop = resizeStart.top;
-        let newWidth = resizeStart.width;
-        let newHeight = resizeStart.height;
+      if (resizeCorner.includes('r')) newW += dx;
+      else { newW -= dx; newLeft += dx; }
+      
+      if (resizeCorner.includes('b')) newH += dy;
+      else { newH -= dy; newTop += dy; }
 
-        if (resizeCorner === 'br') {
-          newWidth = resizeStart.width + dx;
-          newHeight = resizeStart.height + dy;
-        } else if (resizeCorner === 'bl') {
-          newWidth = resizeStart.width - dx;
-          newHeight = resizeStart.height + dy;
-          newLeft = resizeStart.left + dx;
-        } else if (resizeCorner === 'tr') {
-          newWidth = resizeStart.width + dx;
-          newHeight = resizeStart.height - dy;
-          newTop = resizeStart.top + dy;
-        } else if (resizeCorner === 'tl') {
-          newWidth = resizeStart.width - dx;
-          newHeight = resizeStart.height - dy;
-          newLeft = resizeStart.left + dx;
-          newTop = resizeStart.top + dy;
-        }
+      newW = Math.max(20, newW);
+      newH = Math.max(20, newH);
 
-        newWidth = Math.max(60, newWidth);
-        newHeight = Math.max(40, newHeight);
-
-        if (resizingNode.type === 'image') {
-          newHeight = newWidth * resizeStart.aspect;
-        }
-
-        resizingNode.el.style.left = newLeft + 'px';
-        resizingNode.el.style.top = newTop + 'px';
-        resizingNode.el.style.width = newWidth + 'px';
-        resizingNode.el.style.height = newHeight + 'px';
-
-        resizingNode.x = newLeft;
-        resizingNode.y = newTop;
-
-        redrawCanvas();
-        return;
+      if (resizingNode.type === 'image') {
+        newH = newW * resizeStart.aspect; // Maintain aspect ratio
       }
 
-      // altrimenti, comportati come prima
-      _oldWorkspacePointerMove(e);
-    });
+      resizingNode.el.style.width = newW + 'px';
+      resizingNode.el.style.height = newH + 'px';
+      resizingNode.el.style.left = newLeft + 'px';
+      resizingNode.el.style.top = newTop + 'px';
+      resizingNode.x = newLeft;
+      resizingNode.y = newTop;
+      
+      redrawCanvas();
+    }
 
-    workspace.addEventListener('pointerup', function(e) {
-      if (resizingNode) {
-        resizingNode = null;
-        resizeCorner = null;
-        resizeStart = null;
-        workspace.releasePointerCapture(e.pointerId);
+    function onResizeHandleUp(e) {
+      const h = e.currentTarget;
+      h.removeEventListener('pointermove', onResizeHandleMove);
+      h.removeEventListener('pointerup', onResizeHandleUp);
+      resizingNode = null;
+    }
+
+    // =========================
+    // Azioni Toolbar
+    // =========================
+    function setMode(newMode) {
+      mode = newMode;
+      
+      // Toggle classi bottoni
+      const btns = ['connectorModeBtn', 'arrowModeBtn', 'resizeModeBtn'];
+      btns.forEach(b => document.getElementById(b).classList.remove('active'));
+
+      if (mode === 'connector') document.getElementById('connectorModeBtn').classList.add('active');
+      if (mode === 'arrow') document.getElementById('arrowModeBtn').classList.add('active');
+      if (mode === 'resizeNode') document.getElementById('resizeModeBtn').classList.add('active');
+
+      // Update testo status bar
+      const labels = {
+        'normal': 'Modalità: Normale (Doppio click sul testo per modificare)',
+        'connector': 'Modalità: Clicca sul nodo A poi sul nodo B',
+        'arrow': 'Modalità: Clicca due punti per creare freccia (o trascina esistente)',
+        'resizeNode': 'Modalità: Trascina gli angoli arancioni'
+      };
+      statusBar.textContent = labels[mode] || mode;
+
+      updateResizeHandles();
+      
+      // Reset puntatori canvas
+      if (mode === 'arrow') {
+        canvas.style.pointerEvents = 'auto';
+        canvas.style.cursor = 'crosshair';
+      } else {
+        canvas.style.pointerEvents = 'none';
+        canvas.style.cursor = 'default';
       }
-      _oldWorkspacePointerUp(e);
-    });
+    }
 
-    workspace.addEventListener('pointercancel', function(e) {
-      if (resizingNode) {
-        resizingNode = null;
-        resizeCorner = null;
-        resizeStart = null;
-      }
-      _oldWorkspacePointerUp(e);
-    });
-
-    // Nodo + / Nodo - (nodo + font per testi)
+    // Scala nodi
     function scaleSelectedNode(factor) {
       if (!selectedNodeId) return;
       const node = getNodeById(selectedNodeId);
-      if (!node) return;
       const rect = node.el.getBoundingClientRect();
-      const wsRect = workspace.getBoundingClientRect();
-      const width = rect.width * factor;
-      const height = rect.height * factor;
-      const centerX = (rect.left - wsRect.left) + rect.width / 2;
-      const centerY = (rect.top - wsRect.top) + rect.height / 2;
+      
+      const newW = Math.max(30, rect.width * factor);
+      const newH = Math.max(20, rect.height * factor);
+      
+      node.el.style.width = newW + 'px';
+      node.el.style.height = newH + 'px';
 
-      const newWidth = Math.max(60, width);
-      const newHeight = Math.max(40, height);
-
-      const newLeft = centerX - newWidth / 2;
-      const newTop = centerY - newHeight / 2;
-
-      node.el.style.width = newWidth + 'px';
-      node.el.style.height = newHeight + 'px';
-      node.el.style.left = newLeft + 'px';
-      node.el.style.top = newTop + 'px';
-
-      node.x = newLeft;
-      node.y = newTop;
-
+      // Scala font per testo
       if (node.type === 'text') {
         const contentEl = node.el.querySelector('.node-content');
-        if (contentEl) {
-          const cs = window.getComputedStyle(contentEl);
-          const currentSize = parseFloat(cs.fontSize) || 14;
-          let newSize = currentSize * factor;
-          newSize = Math.max(8, Math.min(72, newSize));
-          contentEl.style.fontSize = newSize + 'px';
-        }
-      }
-
-      redrawCanvas();
-    }
-
-    // =========================
-    // Colori
-    // =========================
-    function applyBorderColor(color) {
-      if (!selectedNodeId) return;
-      const node = getNodeById(selectedNodeId);
-      if (!node) return;
-      node.el.style.borderColor = color;
-    }
-
-    function applyTextColor(color) {
-      if (!selectedNodeId) return;
-      const node = getNodeById(selectedNodeId);
-      if (!node || node.type !== 'text') return;
-      const contentEl = node.el.querySelector('.node-content');
-      if (contentEl) contentEl.style.color = color;
-    }
-
-    function applyArrowColor(color) {
-      currentArrowColor = color;
-      if (selectedConnectorId) {
-        const conn = connectors.find(c => c.id === selectedConnectorId);
-        if (conn) conn.color = color;
-      }
-      if (selectedFreeArrowId) {
-        const arrow = freeArrows.find(a => a.id === selectedFreeArrowId);
-        if (arrow) arrow.color = color;
+        const cs = window.getComputedStyle(contentEl);
+        const currSize = parseFloat(cs.fontSize) || 14;
+        contentEl.style.fontSize = (currSize * factor) + 'px';
       }
       redrawCanvas();
     }
 
-    function toggleWrapSelectedText() {
-      if (!selectedNodeId) return;
-      const node = getNodeById(selectedNodeId);
-      if (!node || node.type !== 'text') return;
-      const contentEl = node.el.querySelector('.node-content');
-      if (!contentEl) return;
-      const current = contentEl.style.whiteSpace || window.getComputedStyle(contentEl).whiteSpace;
-      if (current === 'nowrap') {
-        contentEl.style.whiteSpace = 'pre-wrap';
-      } else {
-        contentEl.style.whiteSpace = 'nowrap';
-      }
-    }
-
-    // =========================
-    // Frecce: allunga / accorcia / ruota
-    // =========================
-    function adjustArrowLength(delta) {
-      if (!selectedFreeArrowId) return;
-      const arrow = freeArrows.find(a => a.id === selectedFreeArrowId);
-      if (!arrow) return;
-      arrow.length = Math.max(30, arrow.length + delta);
-      redrawCanvas();
-    }
-
-    function rotateArrow(deltaDeg) {
-      if (!selectedFreeArrowId) return;
-      const arrow = freeArrows.find(a => a.id === selectedFreeArrowId);
-      if (!arrow) return;
-      const deltaRad = deltaDeg * Math.PI / 180;
-      arrow.angle += deltaRad;
-      redrawCanvas();
-    }
-
-    // =========================
-    // Livelli (primo piano / dietro)
-    // =========================
+    // Z-Index Layers
     function bringToFront() {
       if (selectedNodeId) {
-        const node = getNodeById(selectedNodeId);
-        if (!node) return;
         nodeZCounter++;
+        const node = getNodeById(selectedNodeId);
         node.z = nodeZCounter;
-        node.el.style.zIndex = node.z;
-      } else if (selectedFreeArrowId) {
-        const arrow = freeArrows.find(a => a.id === selectedFreeArrowId);
-        if (!arrow) return;
-        canvasZCounter++;
-        arrow.z = canvasZCounter;
-      } else if (selectedConnectorId) {
-        const conn = connectors.find(c => c.id === selectedConnectorId);
-        if (!conn) return;
-        canvasZCounter++;
-        conn.z = canvasZCounter;
+        node.el.style.zIndex = nodeZCounter;
       }
       redrawCanvas();
     }
@@ -966,31 +885,20 @@
     function sendToBack() {
       if (selectedNodeId) {
         const node = getNodeById(selectedNodeId);
-        if (!node) return;
-        node.z = 1;
-        node.el.style.zIndex = node.z;
-      } else if (selectedFreeArrowId) {
-        const arrow = freeArrows.find(a => a.id === selectedFreeArrowId);
-        if (!arrow) return;
-        arrow.z = 1;
-      } else if (selectedConnectorId) {
-        const conn = connectors.find(c => c.id === selectedConnectorId);
-        if (!conn) return;
-        conn.z = 1;
+        // Per mandare davvero dietro, deve essere minore degli altri
+        // Semplificazione: mettiamo a 1. Se c'è altro a 1, pazienza.
+        node.z = 1; 
+        node.el.style.zIndex = 1;
       }
       redrawCanvas();
     }
 
-    // =========================
-    // Cancella
-    // =========================
     function deleteSelected() {
       if (selectedNodeId) {
-        const nodeId = selectedNodeId;
-        const node = getNodeById(nodeId);
-        if (node) node.el.remove();
-        nodes = nodes.filter(n => n.id !== nodeId);
-        connectors = connectors.filter(c => c.fromId !== nodeId && c.toId !== nodeId);
+        const node = getNodeById(selectedNodeId);
+        node.el.remove();
+        nodes = nodes.filter(n => n.id !== selectedNodeId);
+        connectors = connectors.filter(c => c.fromId !== selectedNodeId && c.toId !== selectedNodeId);
       } else if (selectedConnectorId) {
         connectors = connectors.filter(c => c.id !== selectedConnectorId);
       } else if (selectedFreeArrowId) {
@@ -1002,187 +910,152 @@
 
     function clearAll() {
       nodes.forEach(n => n.el.remove());
-      nodes = [];
-      connectors = [];
-      freeArrows = [];
+      nodes = []; connectors = []; freeArrows = [];
+      nodeZCounter = 10;
+      nextId = 1;
       clearSelection();
       redrawCanvas();
     }
 
-    // =========================
-    // Disegno canvas
-    // =========================
-    function drawArrow(x1, y1, x2, y2, color, isSelected) {
-      const headLength = 10;
-      const dx = x2 - x1;
-      const dy = y2 - y1;
-      const angle = Math.atan2(dy, dx);
+    // Rotazione Frecce
+    function rotateArrow(deg) {
+      if (!selectedFreeArrowId) return;
+      const a = freeArrows.find(x => x.id === selectedFreeArrowId);
+      if (a) {
+        a.angle += deg * Math.PI / 180;
+        redrawCanvas();
+      }
+    }
+    function adjustArrowLength(delta) {
+      if (!selectedFreeArrowId) return;
+      const a = freeArrows.find(x => x.id === selectedFreeArrowId);
+      if (a) {
+        a.length = Math.max(20, a.length + delta);
+        redrawCanvas();
+      }
+    }
 
+    // =========================
+    // Disegno Canvas
+    // =========================
+    function drawArrowHead(ctx, x, y, angle, color) {
+      const headLen = 10;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - headLen * Math.cos(angle - Math.PI/6), y - headLen * Math.sin(angle - Math.PI/6));
+      ctx.lineTo(x - headLen * Math.cos(angle + Math.PI/6), y - headLen * Math.sin(angle + Math.PI/6));
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+
+    function drawLineArrow(x1, y1, x2, y2, color, isSelected) {
       ctx.strokeStyle = isSelected ? 'red' : color;
-      ctx.fillStyle = isSelected ? 'red' : color;
       ctx.lineWidth = isSelected ? 3 : 2;
-
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.lineTo(x2, y2);
       ctx.stroke();
 
-      ctx.beginPath();
-      ctx.moveTo(x2, y2);
-      ctx.lineTo(
-        x2 - headLength * Math.cos(angle - Math.PI / 6),
-        y2 - headLength * Math.sin(angle - Math.PI / 6)
-      );
-      ctx.lineTo(
-        x2 - headLength * Math.cos(angle + Math.PI / 6),
-        y2 - headLength * Math.sin(angle + Math.PI / 6)
-      );
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    function drawConnector(conn) {
-      const fromNode = getNodeById(conn.fromId);
-      const toNode = getNodeById(conn.toId);
-      if (!fromNode || !toNode) return;
-      const p1 = getNodeCenter(fromNode);
-      const p2 = getNodeCenter(toNode);
-      const isSelected = (conn.id === selectedConnectorId);
-      drawArrow(p1.x, p1.y, p2.x, p2.y, conn.color, isSelected);
+      const angle = Math.atan2(y2 - y1, x2 - x1);
+      drawArrowHead(ctx, x2, y2, angle, isSelected ? 'red' : color);
     }
 
     function redrawCanvas() {
-      ctx.clearRect(0,0,canvas.width, canvas.height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      const items = [];
-      connectors.forEach(c => items.push({type: 'connector', obj: c}));
-      freeArrows.forEach(a => items.push({type: 'arrow', obj: a}));
-
-      items.sort((a, b) => (a.obj.z || 0) - (b.obj.z || 0));
-
-      items.forEach(item => {
-        if (item.type === 'connector') {
-          drawConnector(item.obj);
-        } else if (item.type === 'arrow') {
-          const a = item.obj;
-          const {x1,y1,x2,y2} = getArrowEndpoints(a);
-          const isSelected = (a.id === selectedFreeArrowId);
-          drawArrow(x1,y1,x2,y2, a.color, isSelected);
+      // Disegna connettori
+      connectors.forEach(c => {
+        const from = getNodeById(c.fromId);
+        const to = getNodeById(c.toId);
+        if (from && to) {
+          const p1 = getNodeCenter(from);
+          const p2 = getNodeCenter(to);
+          drawLineArrow(p1.x, p1.y, p2.x, p2.y, c.color, c.id === selectedConnectorId);
         }
+      });
+
+      // Disegna frecce libere
+      freeArrows.forEach(a => {
+        const pts = getArrowEndpoints(a);
+        drawLineArrow(pts.x1, pts.y1, pts.x2, pts.y2, a.color, a.id === selectedFreeArrowId);
       });
     }
 
     // =========================
-    // Export PNG / PDF
+    // Export
     // =========================
     async function saveAsPng() {
-      const canvasExport = await html2canvas(workspace);
+      clearSelection(); // Rimuovi bordi rossi prima di salvare
+      const canvasExport = await html2canvas(workspace, { scale: 2 });
       const link = document.createElement('a');
       link.href = canvasExport.toDataURL('image/png');
-      link.download = 'mindweave-lavagna.png';
+      link.download = 'mindweave.png';
       link.click();
     }
 
     async function saveAsPdf() {
-      const canvasExport = await html2canvas(workspace);
+      clearSelection();
+      const canvasExport = await html2canvas(workspace, { scale: 2 });
       const imgData = canvasExport.toDataURL('image/png');
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF('l', 'pt', 'a4');
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const ratio = Math.min(pageWidth / canvasExport.width, pageHeight / canvasExport.height);
-      const imgWidth = canvasExport.width * ratio;
-      const imgHeight = canvasExport.height * ratio;
-      const x = (pageWidth - imgWidth) / 2;
-      const y = (pageHeight - imgHeight) / 2;
-      pdf.addImage(imgData, 'PNG', x, y, imgWidth, imgHeight);
-      pdf.save('mindweave-lavagna.pdf');
+      const pW = pdf.internal.pageSize.getWidth();
+      const pH = pdf.internal.pageSize.getHeight();
+      const ratio = Math.min(pW / canvasExport.width, pH / canvasExport.height);
+      const w = canvasExport.width * ratio;
+      const h = canvasExport.height * ratio;
+      pdf.addImage(imgData, 'PNG', (pW-w)/2, (pH-h)/2, w, h);
+      pdf.save('mindweave.pdf');
     }
 
     // =========================
-    // Toolbar
+    // Binding Eventi DOM
     // =========================
     document.getElementById('addTextBtn').addEventListener('click', addTextNode);
-    document.getElementById('toggleWrapBtn').addEventListener('click', toggleWrapSelectedText);
+    document.getElementById('addImageBtn').addEventListener('click', () => document.getElementById('imageInput').click());
+    document.getElementById('imageInput').addEventListener('change', (e) => addImageNode(e.target.files[0]));
+    
+    document.getElementById('nodePlusBtn').addEventListener('click', () => scaleSelectedNode(1.1));
+    document.getElementById('nodeMinusBtn').addEventListener('click', () => scaleSelectedNode(0.9));
+    
+    document.getElementById('bringToFrontBtn').addEventListener('click', bringToFront);
+    document.getElementById('sendToBackBtn').addEventListener('click', sendToBack);
+    
+    document.getElementById('resizeModeBtn').addEventListener('click', () => setMode(mode === 'resizeNode' ? 'normal' : 'resizeNode'));
+    document.getElementById('connectorModeBtn').addEventListener('click', () => setMode(mode === 'connector' ? 'normal' : 'connector'));
+    document.getElementById('arrowModeBtn').addEventListener('click', () => setMode(mode === 'arrow' ? 'normal' : 'arrow'));
 
-    document.getElementById('addImageBtn').addEventListener('click', () => {
-      const fileInput = document.getElementById('imageInput');
-      const file = fileInput.files[0];
-      addImageNode(file);
-      fileInput.value = '';
-    });
-
-    document.getElementById('resizeModeBtn').addEventListener('click', () => {
-      if (mode === 'resizeNode') setMode('normal');
-      else setMode('resizeNode');
-    });
-
-    document.getElementById('nodePlusBtn').addEventListener('click', () => {
-      scaleSelectedNode(1.1);
-    });
-
-    document.getElementById('nodeMinusBtn').addEventListener('click', () => {
-      scaleSelectedNode(0.9);
-    });
-
-    document.getElementById('connectorModeBtn').addEventListener('click', () => {
-      if (mode === 'connector') setMode('normal');
-      else {
-        clearSelection();
-        setMode('connector');
-      }
-    });
-
-    document.getElementById('arrowModeBtn').addEventListener('click', () => {
-      if (mode === 'arrow') {
-        setMode('normal');
-        drawingArrowStart = null;
-      } else {
-        clearSelection();
-        drawingArrowStart = null;
-        setMode('arrow');
-      }
-    });
-
-    document.getElementById('arrowLengthPlusBtn').addEventListener('click', () => {
-      adjustArrowLength(10);
-    });
-
-    document.getElementById('arrowLengthMinusBtn').addEventListener('click', () => {
-      adjustArrowLength(-10);
-    });
-
-    document.getElementById('arrowRotateLeftBtn').addEventListener('click', () => {
-      rotateArrow(-5);
-    });
-
-    document.getElementById('arrowRotateRightBtn').addEventListener('click', () => {
-      rotateArrow(5);
-    });
-
-    document.getElementById('borderColorPicker').addEventListener('input', (e) => {
-      applyBorderColor(e.target.value);
-    });
-
-    document.getElementById('textColorPicker').addEventListener('input', (e) => {
-      applyTextColor(e.target.value);
-    });
-
-    document.getElementById('arrowColorPicker').addEventListener('input', (e) => {
-      applyArrowColor(e.target.value);
-    });
+    document.getElementById('arrowLengthPlusBtn').addEventListener('click', () => adjustArrowLength(10));
+    document.getElementById('arrowLengthMinusBtn').addEventListener('click', () => adjustArrowLength(-10));
+    document.getElementById('arrowRotateLeftBtn').addEventListener('click', () => rotateArrow(-10));
+    document.getElementById('arrowRotateRightBtn').addEventListener('click', () => rotateArrow(10));
 
     document.getElementById('deleteSelectedBtn').addEventListener('click', deleteSelected);
     document.getElementById('clearAllBtn').addEventListener('click', clearAll);
-
     document.getElementById('savePngBtn').addEventListener('click', saveAsPng);
     document.getElementById('savePdfBtn').addEventListener('click', saveAsPdf);
 
-    document.getElementById('bringToFrontBtn').addEventListener('click', bringToFront);
-    document.getElementById('sendToBackBtn').addEventListener('click', sendToBack);
+    // Gestione colori in tempo reale
+    document.getElementById('borderColorPicker').addEventListener('input', (e) => {
+      if (selectedNodeId) getNodeById(selectedNodeId).el.style.borderColor = e.target.value;
+    });
+    document.getElementById('textColorPicker').addEventListener('input', (e) => {
+      if (selectedNodeId) {
+        const n = getNodeById(selectedNodeId);
+        if (n.type === 'text') n.el.querySelector('.node-content').style.color = e.target.value;
+      }
+    });
+    document.getElementById('arrowColorPicker').addEventListener('input', (e) => {
+      currentArrowColor = e.target.value;
+      if (selectedConnectorId) connectors.find(c => c.id === selectedConnectorId).color = currentArrowColor;
+      if (selectedFreeArrowId) freeArrows.find(a => a.id === selectedFreeArrowId).color = currentArrowColor;
+      redrawCanvas();
+    });
 
-    // Init
+    // Avvio
     setMode('normal');
+
   </script>
 </body>
 </html>
