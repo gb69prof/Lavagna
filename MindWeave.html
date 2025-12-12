@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <title>MindWeave – Lavagna concettuale</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
   <!-- Librerie per esportazione -->
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
@@ -17,13 +18,22 @@
       -webkit-tap-highlight-color: transparent;
     }
 
+    html {
+      height: 100%;
+    }
+
     body {
       margin: 0;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: #f5f5f5;
       display: flex;
       flex-direction: column;
+
+      /* ✅ FIX iPad/Safari: evita tagli della toolbar con viewport dinamico + safe-area */
       height: 100vh;
+      height: 100dvh;
+      padding-top: env(safe-area-inset-top, 0px);
+
       overflow: hidden;
     }
 
@@ -33,13 +43,15 @@
       flex-wrap: wrap;
       align-items: center;
       gap: 4px;
-
-      /* ✅ FIX: evita che la parte alta della toolbar finisca sotto la "safe area" (notch/status bar) */
-      padding: calc(6px + env(safe-area-inset-top, 0px)) 8px 6px 8px;
-
+      padding: 6px 8px;
       background: #222;
       color: #f5f5f5;
       font-size: 14px;
+
+      /* ✅ FIX: resta sempre visibile e non viene "mangiata" in alto */
+      position: sticky;
+      top: 0;
+      z-index: 999;
     }
 
     header span.group-label {
@@ -238,8 +250,7 @@
     <span class="group-label">Connettori:</span>
     <button class="tool-btn" id="connectorModeBtn">□→□</button>
 
-    <span class="
-group-label">Frecce:</span>
+    <span class="group-label">Frecce:</span>
     <button class="tool-btn" id="arrowModeBtn">➜</button>
     <button class="tool-btn" id="arrowLengthPlusBtn">↔+</button>
     <button class="tool-btn" id="arrowLengthMinusBtn">↔−</button>
@@ -252,12 +263,10 @@ group-label">Frecce:</span>
     <label title="Freccia">→</label><input type="color" id="arrowColorPicker" value="#0000ff" />
 
     <span class="group-label">Livello:</span>
-    <button class="tool-btn" id="bringToFrontBtn" title="Porta
- in primo piano">⬆ Primo</button>
+    <button class="tool-btn" id="bringToFrontBtn" title="Porta in primo piano">⬆ Primo</button>
     <button class="tool-btn" id="sendToBackBtn" title="Manda dietro">⬇ Dietro</button>
 
     <span class="group-label">Azioni:</span>
-    <!-- PNG standard + PNG HQ -->
     <button class="tool-btn" id="savePngStandardBtn">📸 PNG</button>
     <button class="tool-btn" id="savePngHQBtn" title="PNG qualità massima">📸 PNG HQ</button>
     <button class="tool-btn" id="savePdfBtn">📄 PDF</button>
@@ -275,7 +284,7 @@ group-label">Frecce:</span>
     </div>
   </div>
 
-  <div id="status-bar">Modalità: normale</div>
+  <div id="status-bar">Modalità: normal</div>
 
   <script>
     // =========================
@@ -670,7 +679,6 @@ group-label">Frecce:</span>
 
       // Modalità ridimensiona: il drag è gestito dalle maniglie, non da qui
       if (mode === 'resizeNode') {
-        // niente drag qui, solo eventuale selezione di nodo
         const node = getTopmostNodeAt(x, y);
         if (node) {
           selectNode(node.id);
@@ -685,15 +693,12 @@ group-label">Frecce:</span>
         const node = getTopmostNodeAt(x, y);
 
         if (node) {
-          // Se è un nodo di testo e fai doppio click sulla parte di testo: entra in modifica
           const targetContent = e.target.closest('.node-content');
           if (node.type === 'text' && targetContent && e.detail === 2) {
-            // doppio click per edit
             targetContent.focus();
             return;
           }
 
-          // altrimenti: drag del nodo
           e.preventDefault();
           selectNode(node.id);
 
@@ -705,7 +710,6 @@ group-label">Frecce:</span>
           return;
         }
 
-        // nessun nodo: prova frecce / connettori
         const hit = findNearestConnectorOrArrow(x, y, 8);
         if (hit && hit.type === 'connector') {
           selectConnector(hit.obj.id);
@@ -722,7 +726,6 @@ group-label">Frecce:</span>
       const x = e.clientX - wsRect.left;
       const y = e.clientY - wsRect.top;
 
-      // Drag nodo
       if (mode === 'normal' && draggingNode && e.pointerId === dragNodePointerId) {
         e.preventDefault();
         const newX = x - dragOffsetX;
@@ -734,7 +737,6 @@ group-label">Frecce:</span>
         redrawCanvas();
       }
 
-      // Drag freccia libera
       if (mode === 'arrow' && draggingFreeArrowId && e.pointerId === dragArrowPointerId) {
         e.preventDefault();
         const arrow = freeArrows.find(a => a.id === draggingFreeArrowId);
@@ -911,7 +913,6 @@ group-label">Frecce:</span>
 
     function applyArrowColor(color) {
       currentArrowColor = color;
-      // aggiorno subito gli oggetti selezionati, se sono frecce / connettori
       if (selectedConnectorId) {
         const conn = connectors.find(c => c.id === selectedConnectorId);
         if (conn) conn.color = color;
@@ -983,7 +984,6 @@ group-label">Frecce:</span>
     // =========================
     function deleteSelected() {
       if (selectedNodeId) {
-        // cancella nodo + connettori collegati
         const nodeId = selectedNodeId;
         const node = getNodeById(nodeId);
         if (node) {
@@ -1046,11 +1046,9 @@ group-label">Frecce:</span>
     function redrawCanvas() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Ordina oggetti per z
       const connectorsSorted = [...connectors].sort((a,b) => a.z - b.z);
       const arrowsSorted = [...freeArrows].sort((a,b) => a.z - b.z);
 
-      // Disegna connettori
       connectorsSorted.forEach(conn => {
         const n1 = getNodeById(conn.fromId);
         const n2 = getNodeById(conn.toId);
@@ -1061,7 +1059,6 @@ group-label">Frecce:</span>
         drawArrow(c1.x, c1.y, c2.x, c2.y, conn.color, isSelected);
       });
 
-      // Disegna frecce libere
       arrowsSorted.forEach(a => {
         const x1 = a.cx - Math.cos(a.angle) * a.length / 2;
         const y1 = a.cy - Math.sin(a.angle) * a.length / 2;
@@ -1177,13 +1174,12 @@ group-label">Frecce:</span>
     }
 
     function loadBoardStateFromObject(state) {
-      clearAll(); // svuota lavagna
+      clearAll();
 
       nodes = [];
       connectors = [];
       freeArrows = [];
 
-      // ricostruisci nodi
       (state.nodes || []).forEach(sn => {
         const nodeEl = document.createElement('div');
         nodeEl.classList.add('node');
@@ -1230,7 +1226,6 @@ group-label">Frecce:</span>
         });
       });
 
-      // ricostruisci connettori e frecce
       connectors = (state.connectors || []).map(c => ({
         id: c.id,
         fromId: c.fromId,
@@ -1249,7 +1244,6 @@ group-label">Frecce:</span>
         z: a.z || 1
       }));
 
-      // aggiorna contatori ID / z-index
       let maxId = 0;
       nodes.forEach(n => { if (n.id > maxId) maxId = n.id; });
       connectors.forEach(c => { if (c.id > maxId) maxId = c.id; });
@@ -1284,9 +1278,6 @@ group-label">Frecce:</span>
       reader.readAsText(file, 'utf-8');
     }
 
-    // =========================
-    // Testo a capo ON/OFF
-    // =========================
     function toggleWrapSelectedText() {
       if (!selectedNodeId) return;
       const node = getNodeById(selectedNodeId);
@@ -1301,29 +1292,6 @@ group-label">Frecce:</span>
       }
     }
 
-    // =========================
-    // Frecce: allunga / accorcia / ruota
-    // =========================
-    function adjustArrowLength(delta) {
-      if (!selectedFreeArrowId) return;
-      const arrow = freeArrows.find(a => a.id === selectedFreeArrowId);
-      if (!arrow) return;
-      arrow.length = Math.max(20, arrow.length + delta);
-      redrawCanvas();
-    }
-
-    function rotateArrow(deltaDeg) {
-      if (!selectedFreeArrowId) return;
-      const arrow = freeArrows.find(a => a.id === selectedFreeArrowId);
-      if (!arrow) return;
-      const rad = deltaDeg * Math.PI / 180;
-      arrow.angle += rad;
-      redrawCanvas();
-    }
-
-    // =========================
-    // Toolbar
-    // =========================
     document.getElementById('addTextBtn').addEventListener('click', addTextNode);
     document.getElementById('toggleWrapBtn').addEventListener('click', toggleWrapSelectedText);
 
@@ -1397,19 +1365,16 @@ group-label">Frecce:</span>
     document.getElementById('deleteSelectedBtn').addEventListener('click', deleteSelected);
     document.getElementById('clearAllBtn').addEventListener('click', clearAll);
 
-    // PNG standard
     document.getElementById('savePngStandardBtn').addEventListener('click', () => {
       saveAsPng(1, '');
     });
 
-    // PNG alta qualità per LIM
     document.getElementById('savePngHQBtn').addEventListener('click', () => {
       saveAsPng(4, '-HQ');
     });
 
     document.getElementById('savePdfBtn').addEventListener('click', saveAsPdf);
 
-    // Salva / Apri lavagna (formato MindWeave JSON)
     document.getElementById('saveBoardBtn').addEventListener('click', () => {
       downloadBoardState();
     });
@@ -1429,9 +1394,6 @@ group-label">Frecce:</span>
     document.getElementById('bringToFrontBtn').addEventListener('click', bringToFront);
     document.getElementById('sendToBackBtn').addEventListener('click', sendToBack);
 
-    // =========================
-    // Scala nodo selezionato
-    // =========================
     function scaleSelectedNode(factor) {
       if (!selectedNodeId) return;
       const node = getNodeById(selectedNodeId);
@@ -1453,7 +1415,6 @@ group-label">Frecce:</span>
       redrawCanvas();
     }
 
-    // Init
     setMode('normal');
   </script>
 </body>
