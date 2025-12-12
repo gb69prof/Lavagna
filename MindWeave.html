@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>MindWeave – Lavagna concettuale</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <!-- Librerie per esportazione -->
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
@@ -33,7 +33,10 @@
       flex-wrap: wrap;
       align-items: center;
       gap: 4px;
-      padding: 6px 8px;
+
+      /* ✅ FIX: evita che la parte alta della toolbar finisca sotto la "safe area" (notch/status bar) */
+      padding: calc(6px + env(safe-area-inset-top, 0px)) 8px 6px 8px;
+
       background: #222;
       color: #f5f5f5;
       font-size: 14px;
@@ -254,10 +257,12 @@ group-label">Frecce:</span>
     <button class="tool-btn" id="sendToBackBtn" title="Manda dietro">⬇ Dietro</button>
 
     <span class="group-label">Azioni:</span>
+    <!-- PNG standard + PNG HQ -->
+    <button class="tool-btn" id="savePngStandardBtn">📸 PNG</button>
+    <button class="tool-btn" id="savePngHQBtn" title="PNG qualità massima">📸 PNG HQ</button>
+    <button class="tool-btn" id="savePdfBtn">📄 PDF</button>
     <button class="tool-btn" id="deleteSelectedBtn">🗑 Cancella</button>
     <button class="tool-btn" id="clearAllBtn">🧹 Tutto</button>
-    <button class="tool-btn" id="savePngBtn">📸 PNG</button>
-    <button class="tool-btn" id="savePdfBtn">📄 PDF</button>
     <button class="tool-btn" id="saveBoardBtn">💾 Salva</button>
     <button class="tool-btn" id="loadBoardBtn">📂 Apri</button>
     <input type="file" id="loadBoardInput" accept=".json" style="display:none" />
@@ -1039,7 +1044,6 @@ group-label">Frecce:</span>
     }
 
     function redrawCanvas() {
-      const rect = workspace.getBoundingClientRect();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Ordina oggetti per z
@@ -1071,11 +1075,11 @@ group-label">Frecce:</span>
     // =========================
     // Export PNG / PDF
     // =========================
-    async function saveAsPng() {
-      const canvasExport = await html2canvas(workspace);
+    async function saveAsPng(scale = 1, filenameSuffix = '') {
+      const canvasExport = await html2canvas(workspace, { scale });
       const link = document.createElement('a');
       link.href = canvasExport.toDataURL('image/png');
-      link.download = 'mindweave-lavagna.png';
+      link.download = 'mindweave-lavagna' + filenameSuffix + '.png';
       link.click();
     }
 
@@ -1098,7 +1102,6 @@ group-label">Frecce:</span>
     // =========================
     // Salva / Carica stato lavagna (formato MindWeave JSON)
     // =========================
-
     function exportBoardState() {
       const wsRect = workspace.getBoundingClientRect();
 
@@ -1179,8 +1182,6 @@ group-label">Frecce:</span>
       nodes = [];
       connectors = [];
       freeArrows = [];
-
-      const wsRect = workspace.getBoundingClientRect();
 
       // ricostruisci nodi
       (state.nodes || []).forEach(sn => {
@@ -1396,7 +1397,16 @@ group-label">Frecce:</span>
     document.getElementById('deleteSelectedBtn').addEventListener('click', deleteSelected);
     document.getElementById('clearAllBtn').addEventListener('click', clearAll);
 
-    document.getElementById('savePngBtn').addEventListener('click', saveAsPng);
+    // PNG standard
+    document.getElementById('savePngStandardBtn').addEventListener('click', () => {
+      saveAsPng(1, '');
+    });
+
+    // PNG alta qualità per LIM
+    document.getElementById('savePngHQBtn').addEventListener('click', () => {
+      saveAsPng(4, '-HQ');
+    });
+
     document.getElementById('savePdfBtn').addEventListener('click', saveAsPdf);
 
     // Salva / Apri lavagna (formato MindWeave JSON)
@@ -1415,7 +1425,6 @@ group-label">Frecce:</span>
       if (!file) return;
       loadBoardFromFile(file);
     });
-
 
     document.getElementById('bringToFrontBtn').addEventListener('click', bringToFront);
     document.getElementById('sendToBackBtn').addEventListener('click', sendToBack);
