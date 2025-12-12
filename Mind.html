@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>MindWeave – Lavagna concettuale</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <!-- Librerie per esportazione -->
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
@@ -33,7 +33,10 @@
       flex-wrap: wrap;
       align-items: center;
       gap: 4px;
-      padding: 6px 8px;
+
+      /* ✅ FIX: evita che la parte alta della toolbar finisca sotto la "safe area" (notch/status bar) */
+      padding: calc(6px + env(safe-area-inset-top, 0px)) 8px 6px 8px;
+
       background: #222;
       color: #f5f5f5;
       font-size: 14px;
@@ -1041,7 +1044,6 @@ group-label">Frecce:</span>
     }
 
     function redrawCanvas() {
-      const rect = workspace.getBoundingClientRect();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Ordina oggetti per z
@@ -1100,7 +1102,6 @@ group-label">Frecce:</span>
     // =========================
     // Salva / Carica stato lavagna (formato MindWeave JSON)
     // =========================
-
     function exportBoardState() {
       const wsRect = workspace.getBoundingClientRect();
 
@@ -1181,8 +1182,6 @@ group-label">Frecce:</span>
       nodes = [];
       connectors = [];
       freeArrows = [];
-
-      const wsRect = workspace.getBoundingClientRect();
 
       // ricostruisci nodi
       (state.nodes || []).forEach(sn => {
